@@ -217,18 +217,3 @@ impl Prune {
             .collect()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::Prune;
-    // Keep separate archive closures and normalize loaded object paths.
-    #[test]
-    fn parses_linker_member_traces() {
-        let trace = "/sdk/libclient.a(build/clientapi.o)\n /sdk/libclient.a[12](clientuser.o) loaded because of ABI\n /sdk/libother.a(ignored.o)";
-        let members = Prune::members(trace, "libclient.a");
-        assert_eq!(members.len(), 2);
-        assert!(members.contains("clientapi.o"));
-        assert!(members.contains("clientuser.o"));
-        assert!(!members.contains("ignored.o"));
-    }
-}

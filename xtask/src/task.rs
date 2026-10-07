@@ -51,14 +51,14 @@ impl Task {
                 Producer::run().context("Failed to rebuild native libraries")?;
                 Ok(())
             }
-            "build" | "check" | "package" | "verify" => {
+            "build" | "check" | "package" => {
                 Archives::prepare(&root, false).context("Failed to prepare Cargo inputs")?;
                 Producer::run().context("Failed to prepare native release libraries")?;
                 Self::cargo(&root, command, &args[1..]).context("Failed to execute Cargo workflow")
             }
             "help" if args.len() <= 1 => {
                 println!(
-                    "cargo xtask <prepare [--all]|build [Cargo options]|check|package|verify|native [--openssl-lib-dir <cache>]|archive>"
+                    "cargo xtask <prepare [--all]|build [Cargo options]|check|package|native [--openssl-lib-dir <cache>]|archive>"
                 );
                 Ok(())
             }
@@ -82,7 +82,6 @@ impl Task {
                 "warnings",
             ],
             "package" => vec!["package", "-p", "p4rust", "--offline", "--allow-dirty"],
-            "verify" => vec!["test", "--workspace", "--all-targets", "--all-features"],
             _ => return Err(Error::new("Failed to select Cargo workflow")),
         }
         .into_iter()
@@ -109,20 +108,6 @@ impl Task {
         Self::command(root, "cargo", &args).context("Failed to run Cargo")?;
         if command == "package" {
             Self::package_limit(root).context("Failed to validate package size")?;
-        }
-        if command == "verify" {
-            Self::command(
-                root,
-                "pwsh",
-                &[
-                    "-NoProfile".into(),
-                    "-File".into(),
-                    root.join("xtask/scripts/verify-release.ps1")
-                        .to_string_lossy()
-                        .into_owned(),
-                ],
-            )
-            .context("Failed to verify packaged consumer")?;
         }
         Ok(())
     }

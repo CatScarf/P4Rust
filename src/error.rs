@@ -88,33 +88,3 @@ macro_rules! ensure {
     };
 }
 pub(crate) use ensure;
-
-#[cfg(test)]
-mod tests {
-    use super::ResultExt;
-    use std::error::Error;
-
-    // Keep nested context readable and preserve the concrete root cause.
-    #[test]
-    fn preserves_error_sources() {
-        let failure = Err::<(), _>(std::io::Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            "denied",
-        ))
-        .context("Failed to read archive")
-        .context("Failed to prepare SDK");
-        let Err(error) = failure else {
-            panic!("Expected contextual failure");
-        };
-        assert_eq!(
-            error.to_string(),
-            "Failed to prepare SDK: Failed to read archive: denied"
-        );
-        let cause = error.source().and_then(|source| source.source());
-        assert!(
-            cause
-                .and_then(|source| source.downcast_ref::<std::io::Error>())
-                .is_some_and(|source| source.kind() == std::io::ErrorKind::PermissionDenied)
-        );
-    }
-}

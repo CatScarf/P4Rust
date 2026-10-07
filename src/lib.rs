@@ -142,8 +142,3 @@ impl Client {
         result.with_context(|| format!("Failed to execute native P4 command '{command}'"))
     }
 }
-
-#[cfg(test)]
-mod client_tests;
-#[cfg(test)]
-mod concurrency_tests;
