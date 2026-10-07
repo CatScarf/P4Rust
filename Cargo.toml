@@ -7,7 +7,7 @@ description = "Safe Rust bindings to the official Perforce C++ client API"
 readme = "README.md"
 build = "build.rs"
 links = "p4rust_abi_v1"
-include = ["src/**", "README.md", "Cargo.toml", "Cargo.lock", "build.rs", "native/lib/**", "native/NOTICE.md", "native/OPENSSL-LICENSE.txt"]
+include = ["src/**", "README.md", "Cargo.toml", "Cargo.lock", "build.rs", "native/lib/**", "native/licenses/**", "native/NOTICE.md", "native/OPENSSL-LICENSE.txt"]
 
 [workspace]
 members = ["xtask"]

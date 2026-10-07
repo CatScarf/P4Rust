@@ -1,6 +1,6 @@
 # P4Rust
 
-Safe Rust bindings to the official Perforce C++ API. Supports Windows x64 MSVC with precompiled native libraries and no Rust dependencies.
+Safe Rust bindings to the official Perforce C++ API. Precompiled native libraries and no Rust dependencies. Release packages cover Windows x64 (MSVC and GNU), Windows ARM64, Linux x64/ARM64, and macOS x64/ARM64.
 
 ## Usage
 
@@ -26,9 +26,13 @@ fn main() -> Result<()> {
 }
 ```
 
-`run_with_input` accepts form or password input. Output contains text, binary bytes, ordered tagged records, and warnings. Errors retain operation context and their original cause.
+`Client` can be shared across threads without an application lock; each command opens an independent connection. `run_with_input` accepts form or password input. Output contains text, binary bytes, ordered tagged records, and warnings. `Output.raw` preserves the original text, field, and warning bytes; display strings replace invalid UTF-8 after text fragments have been combined. Errors retain operation context and their original cause.
 
-The package requires the standard MSVC runtime; `crt-static` is unsupported. Version 0.1.0 has not yet been published to crates.io.
+`run_with_options` and `run_with_input_and_options` accept `RunOptions { timeout, cancellation }`. Timeouts use `Duration`; cancelling a cloned `CancellationToken` interrupts its commands. The error chain contains `std::io::ErrorKind::TimedOut` or `Interrupted`.
+
+Caller deadlines include connection setup. Native commands stop through the SDK's cooperative interrupt hook. DNS, connection setup, or local SDK work that cannot poll may finish cleanup in an owned background worker; a command cancelled during setup is never dispatched.
+
+Windows MSVC packages require the shared MSVC runtime; `crt-static` is unsupported on those targets. Version 0.1.0 has not yet been published to crates.io.
 
 ## Development
 
@@ -39,3 +43,9 @@ cargo xtask package
 ```
 
 SDK libraries are stored as `.tar.zst` archives. `xtask` verifies and extracts them, builds the native release locally, and bundles it into the distributable crate. See [xtask](xtask/README.md) for maintainer commands.
+
+## Releases
+
+GitHub Actions builds and verifies all seven targets on pushes to `main` or manual runs. Pull requests run the same checks without publishing. The version comes from `Cargo.toml`.
+
+Each release `v<version>` contains one `p4rust-<version>.zip`, with a target directory containing its precompiled `.crate`. All seven builds must pass, and each crate must stay below 10 MB. Rebuilding the same version replaces the ZIP and updates its tag to the current commit; increasing the version creates a new release.

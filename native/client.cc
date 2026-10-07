@@ -3,7 +3,6 @@
 #include <p4libs.h>
 #include <cstdio>
 #include <cstring>
-#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -24,6 +23,7 @@ public:
                                      std::string(message.Text()));
         }
         initialized = true;
+        P4Libraries::DisableFileSysCreateOnIntr();
     }
 
     // Report runtime cleanup failures during exception unwinding.
@@ -67,15 +67,34 @@ public:
     }
 };
 
+class Interrupt final : public KeepAlive {
+public:
+    p4rust_alive_v1 callback;
+    void* context;
+
+    // Request disconnection only from the native session's owning thread.
+    int IsAlive() override { return !callback || callback(context) != 0; }
+
+    // Poll cancellation without imposing the SDK's default half-second delay.
+    int PollMs() override { return 50; }
+
+    // Stop before connection setup or command dispatch when cancellation is already requested.
+    void Check() {
+        if (!IsAlive()) throw std::runtime_error("Failed to execute P4 command: interrupted");
+    }
+};
+
 class User final : public ClientUser {
 public:
     p4rust_callback_v1 callback;
     void* context;
     std::string input;
+    Interrupt* interrupt = nullptr;
 
     // Copy event bytes to the caller without sharing allocator ownership.
     void Emit(uint32_t event, const char* data = nullptr, size_t length = 0,
               const char* value = nullptr, size_t value_length = 0) {
+        if (interrupt) interrupt->Check();
         if (callback(context, event, reinterpret_cast<const uint8_t*>(data), length,
                      reinterpret_cast<const uint8_t*>(value), value_length) != 0)
             throw std::runtime_error("Failed to collect native output");
@@ -182,24 +201,31 @@ public:
 
 // Execute a command while keeping argument storage alive through Run.
 void execute(const p4rust_options_v1& options, const char* command, int32_t argc,
-             const char* const* args, p4rust_callback_v1 callback, void* context) {
-    static std::mutex mutex;
-    const std::lock_guard<std::mutex> lock(mutex);
+             const char* const* args, p4rust_callback_v1 callback, void* context,
+             p4rust_alive_v1 alive, void* control) {
     static Runtime runtime;
     ThreadScope thread;
+    Interrupt interrupt;
+    interrupt.callback = alive;
+    interrupt.context = control;
+    interrupt.Check();
     Session session;
     session.Configure(options);
     session.Open();
+    if (alive) session.client.SetBreak(&interrupt);
+    interrupt.Check();
     User user;
     user.callback = callback;
     user.context = context;
     user.input = options.input;
+    user.interrupt = alive ? &interrupt : nullptr;
     std::vector<std::string> storage;
     std::vector<char*> pointers;
     storage.reserve(static_cast<size_t>(argc));
     for (int32_t index = 0; index < argc; ++index) storage.emplace_back(args[index]);
     for (auto& arg : storage) pointers.push_back(arg.data());
     session.client.SetArgv(static_cast<int>(pointers.size()), pointers.data());
+    interrupt.Check();
     session.client.Run(command, &user);
     session.Close();
 }
@@ -212,15 +238,23 @@ extern "C" uint32_t p4rust_abi_version(void) { return 1; }
 extern "C" int32_t p4rust_execute_v1(const p4rust_options_v1* options,
     const char* command, int32_t argc, const char* const* argv,
     p4rust_callback_v1 callback, void* context) {
+    return p4rust_execute_controlled_v1(options, command, argc, argv, callback, context,
+                                        nullptr, nullptr);
+}
+
+// Contain C++ exceptions and keep the interruption callback alive through session cleanup.
+extern "C" int32_t p4rust_execute_controlled_v1(const p4rust_options_v1* options,
+    const char* command, int32_t argc, const char* const* argv,
+    p4rust_callback_v1 callback, void* context, p4rust_alive_v1 alive, void* control) {
     if (!callback) return 1;
     try {
         if (!options || options->abi_version != 1 || !command || argc < 0 ||
             (argc && !argv) || !options->port || !options->user || !options->client ||
-            !options->cwd || !options->charset || !options->input)
+            !options->cwd || !options->charset || !options->input || (alive && !control))
             throw std::runtime_error("Failed to validate ABI v1 arguments");
         for (int32_t index = 0; index < argc; ++index)
             if (!argv[index]) throw std::runtime_error("Failed to validate native argument");
-        p4rust::execute(*options, command, argc, argv, callback, context);
+        p4rust::execute(*options, command, argc, argv, callback, context, alive, control);
         return 0;
     } catch (const std::exception& error) {
         callback(context, P4RUST_ERROR, reinterpret_cast<const uint8_t*>(error.what()),

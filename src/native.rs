@@ -1,3 +1,4 @@
+use crate::control::Control;
 use crate::error::{Result, ResultExt, ensure};
 use crate::ffi;
 use crate::{Config, Output, capture::Capture};
@@ -17,6 +18,7 @@ impl Native {
         command: &str,
         args: &[&str],
         input: &str,
+        control: Option<&Control>,
     ) -> Result<Output> {
         // The version function has no pointer arguments or runtime side effects.
         ensure!(
@@ -38,7 +40,7 @@ impl Native {
             .context("Failed to encode native connection settings")?;
         let options = Self::options(&values);
         let command = Self::string(command).context("Failed to encode native command")?;
-        Self::invoke(&options, &command, args).context("Failed to invoke native command")
+        Self::invoke(&options, &command, args, control).context("Failed to invoke native command")
     }
 
     // Build borrowed options from the six encoded connection fields.
@@ -55,7 +57,12 @@ impl Native {
     }
 
     // Keep argument and callback storage alive through the synchronous ABI call.
-    fn invoke(options: &ffi::Options, command: &CString, args: &[&str]) -> Result<Output> {
+    fn invoke(
+        options: &ffi::Options,
+        command: &CString,
+        args: &[&str],
+        control: Option<&Control>,
+    ) -> Result<Output> {
         let strings: Vec<CString> = args
             .iter()
             .map(|arg| Self::string(arg))
@@ -66,13 +73,17 @@ impl Native {
         let mut capture = Capture::new();
         // Every pointer stays valid through this synchronous call; callbacks copy borrowed bytes.
         let status = unsafe {
-            ffi::p4rust_execute_v1(
+            ffi::p4rust_execute_controlled_v1(
                 options,
                 command.as_ptr(),
                 count,
                 pointers.as_ptr(),
                 Capture::callback,
                 (&mut capture as *mut Capture).cast::<c_void>(),
+                control.map(|_| Control::alive as ffi::Alive),
+                control
+                    .map(|control| std::ptr::from_ref(control).cast_mut().cast::<c_void>())
+                    .unwrap_or(std::ptr::null_mut()),
             )
         };
         capture

@@ -8,7 +8,7 @@ Perforce 2025.2, build 3086021, with OpenSSL 3 compatibility. The SDK is a maint
 - `archives.json`: compressed archive and extracted-file checksums.
 - `NOTICE.md`: vendor notices.
 
-`cargo xtask prepare` extracts Windows x64 MSVC inputs. Use `prepare --all` to extract all retained targets. Extracted files under `lib/` are ignored by Git.
+`cargo xtask prepare` extracts the current host target, or the target selected by `P4RUST_TARGET`. Use `prepare --all` to extract all retained targets. Extracted files under `lib/` are ignored by Git.
 
 | Target | Vendor platform |
 | --- | --- |
@@ -20,4 +20,4 @@ Perforce 2025.2, build 3086021, with OpenSSL 3 compatibility. The SDK is a maint
 | `x86_64-apple-darwin` | `bin.macosx12x86_64` |
 | `aarch64-apple-darwin` | `bin.macosx12arm64` |
 
-Only Windows x64 MSVC production is currently validated. No 32-bit targets are retained. The SDK libraries are `client`, `p4script_cstub`, `rpc`, and `supp`; scripting runtimes and aggregate archives are excluded.
+GitHub Actions builds all seven targets. No 32-bit targets are retained. The SDK libraries are `client`, `p4script_cstub`, `rpc`, and `supp`; scripting runtimes and aggregate archives are excluded.

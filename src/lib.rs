@@ -1,12 +1,16 @@
 //! Safe Rust bindings for the Perforce C++ API.
 
 mod capture;
+mod control;
 mod error;
 mod ffi;
 mod native;
+mod output;
 
+pub use control::{CancellationToken, RunOptions};
 use error::ensure;
 pub use error::{Error, Result, ResultExt};
+pub use output::{Output, RawOutput};
 
 /// Explicit settings for a Perforce connection.
 #[derive(Clone, Debug)]
@@ -58,16 +62,7 @@ impl Config {
     }
 }
 
-/// Captured text, binary bytes, tagged records, and warnings.
-#[derive(Debug)]
-pub struct Output {
-    pub text: String,
-    pub binary: Vec<u8>,
-    pub records: Vec<Vec<(String, String)>>,
-    pub warnings: Vec<String>,
-}
-
-/// A configured client that opens a scoped native connection per command.
+/// A thread-safe configured client that opens an independent connection per command.
 pub struct Client {
     config: Config,
 }
@@ -87,6 +82,41 @@ impl Client {
 
     /// Run a Perforce command with explicit noninteractive form input.
     pub fn run_with_input(&self, command: &str, args: &[&str], input: &str) -> Result<Output> {
+        self.execute(command, args, input, None)
+            .context("Failed to run P4 command with input")
+    }
+
+    /// Run a command with a deadline and cancellation signal.
+    pub fn run_with_options(
+        &self,
+        command: &str,
+        args: &[&str],
+        options: &RunOptions,
+    ) -> Result<Output> {
+        self.run_with_input_and_options(command, args, "", options)
+            .context("Failed to run controlled P4 command")
+    }
+
+    /// Run a command with explicit input, a deadline, and cancellation.
+    pub fn run_with_input_and_options(
+        &self,
+        command: &str,
+        args: &[&str],
+        input: &str,
+        options: &RunOptions,
+    ) -> Result<Output> {
+        self.execute(command, args, input, Some(options))
+            .context("Failed to run controlled P4 command with input")
+    }
+
+    // Validate command data before choosing synchronous or controlled execution.
+    fn execute(
+        &self,
+        command: &str,
+        args: &[&str],
+        input: &str,
+        options: Option<&RunOptions>,
+    ) -> Result<Output> {
         ensure!(
             !command.is_empty() && !command.contains('\0'),
             "Failed to validate command name"
@@ -105,10 +135,15 @@ impl Client {
                 "Failed to validate argument: embedded NUL"
             );
         }
-        native::Native::execute(&self.config, command, args, input)
-            .with_context(|| format!("Failed to execute native P4 command '{command}'"))
+        let result = match options {
+            Some(options) => control::Control::execute(&self.config, command, args, input, options),
+            None => native::Native::execute(&self.config, command, args, input, None),
+        };
+        result.with_context(|| format!("Failed to execute native P4 command '{command}'"))
     }
 }
 
 #[cfg(test)]
 mod client_tests;
+#[cfg(test)]
+mod concurrency_tests;

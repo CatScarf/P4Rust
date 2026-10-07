@@ -1,6 +1,11 @@
 param([string]$ServerEndpoint = '')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+$target = $env:P4RUST_TARGET
+if (-not $target) {
+    $target = ((rustc -vV | Select-String '^host: ').Line -replace '^host: ', '')
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to read Rust host' }
+}
 $fixture = Join-Path $root ('temp/release-' + [Guid]::NewGuid().ToString('N'))
 $vendor = Join-Path $fixture 'vendor'
 $consumer = Join-Path $fixture 'consumer'
@@ -30,14 +35,16 @@ function Confirm-TargetGuards([string]$BuildScript) {
     foreach ($key in @('TARGET', 'HOST', 'CARGO_CFG_TARGET_FEATURE')) { $previous[$key] = [Environment]::GetEnvironmentVariable($key, 'Process') }
     try {
         $env:HOST = 'x86_64-pc-windows-msvc'
-        $env:TARGET = 'aarch64-unknown-linux-gnu'
+        $env:TARGET = 'i686-pc-windows-msvc'
         $env:CARGO_CFG_TARGET_FEATURE = ''
         $output = & $BuildScript 2>&1 | Out-String
-        if ($LASTEXITCODE -eq 0 -or $output -notmatch 'unavailable for aarch64-unknown-linux-gnu') { throw 'Unsupported TARGET guard did not reject cross-compilation' }
-        $env:TARGET = 'x86_64-pc-windows-msvc'
-        $env:CARGO_CFG_TARGET_FEATURE = 'crt-static'
-        $output = & $BuildScript 2>&1 | Out-String
-        if ($LASTEXITCODE -eq 0 -or $output -notmatch 'shared MSVC CRT') { throw 'Static CRT guard did not reject incompatible libraries' }
+        if ($LASTEXITCODE -eq 0 -or $output -notmatch 'unavailable for i686-pc-windows-msvc') { throw 'Unsupported TARGET guard did not reject cross-compilation' }
+        if ($target.EndsWith('windows-msvc')) {
+            $env:TARGET = $target
+            $env:CARGO_CFG_TARGET_FEATURE = 'crt-static'
+            $output = & $BuildScript 2>&1 | Out-String
+            if ($LASTEXITCODE -eq 0 -or $output -notmatch 'shared MSVC CRT') { throw 'Static CRT guard did not reject incompatible libraries' }
+        }
         'Unsupported TARGET and crt-static guards passed.' | Set-Content (Join-Path $fixture 'target-guards.txt') -Encoding utf8NoBOM
     } finally {
         foreach ($key in $previous.Keys) { [Environment]::SetEnvironmentVariable($key, $previous[$key], 'Process') }
@@ -46,7 +53,7 @@ function Confirm-TargetGuards([string]$BuildScript) {
 
 Push-Location $root
 try {
-    cargo package -p p4rust --offline --allow-dirty *> (Join-Path $fixture 'package.log')
+    cargo package -p p4rust --offline --allow-dirty --target $target *> (Join-Path $fixture 'package.log')
     Confirm-Command 'package and verify the release'
     $metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
     Confirm-Command 'read workspace package metadata'
@@ -54,7 +61,7 @@ try {
     $sizes = @()
     foreach ($package in $packages) {
         $name = "$($package.name)-$($package.version)"
-        $archive = Join-Path $root "target/package/$name.crate"
+        $archive = Join-Path $metadata.target_directory "package/$name.crate"
         $bytes = (Get-Item -LiteralPath $archive).Length
         if ($bytes -ge 10000000) { throw "Release package exceeds the limit: $name ($bytes bytes)" }
         tar -xzf $archive -C $vendor
@@ -63,15 +70,16 @@ try {
         $sizes += [pscustomobject]@{ name = $name; bytes = $bytes }
     }
     $sizes | ConvertTo-Json | Set-Content (Join-Path $fixture 'package-sizes.json') -Encoding utf8NoBOM
-    @'
+    $version = $packages[0].version
+    @"
 [package]
 name = "p4rust-external-consumer"
 version = "0.0.0"
 edition = "2024"
 [workspace]
 [dependencies]
-p4rust = "=0.1.0"
-'@ | Set-Content (Join-Path $consumer 'Cargo.toml') -Encoding utf8NoBOM
+p4rust = "=$version"
+"@ | Set-Content (Join-Path $consumer 'Cargo.toml') -Encoding utf8NoBOM
     @'
 [source.crates-io]
 replace-with = "release-fixture"
@@ -95,10 +103,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 '@ | Set-Content (Join-Path $consumer 'src/main.rs') -Encoding utf8NoBOM
-    $trap = Join-Path $fixture 'native-compiler-trap.cmd'
+    $trapName = if ($IsWindows) { 'native-compiler-trap.cmd' } else { 'native-compiler-trap.sh' }
+    $trap = Join-Path $fixture $trapName
     $probe = Join-Path $fixture 'native-compiler-invocations.txt'
-    "@echo off`r`necho native compiler invoked >> `"$probe`"`r`nexit /b 97" | Set-Content $trap -Encoding ascii
-    $variables = @('CC', 'CXX', 'AR', 'CC_x86_64_pc_windows_msvc', 'CXX_x86_64_pc_windows_msvc', 'AR_x86_64_pc_windows_msvc')
+    if ($IsWindows) {
+        "@echo off`r`necho native compiler invoked >> `"$probe`"`r`nexit /b 97" | Set-Content $trap -Encoding ascii
+    } else {
+        "#!/bin/sh`necho invoked >> '$probe'`nexit 97" | Set-Content $trap -Encoding ascii
+        chmod +x $trap
+        Confirm-Command 'make the native compiler trap executable'
+    }
+    $suffix = $target.Replace('-', '_')
+    $variables = @('CC', 'CXX', 'AR', "CC_$suffix", "CXX_$suffix", "AR_$suffix")
     $previous = @{}
     foreach ($variable in $variables) {
         $previous[$variable] = [Environment]::GetEnvironmentVariable($variable, 'Process')
@@ -106,17 +122,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     Push-Location $consumer
     try {
-        cargo build --offline -vv --target x86_64-pc-windows-msvc --target-dir (Join-Path $fixture 'target') *> (Join-Path $fixture 'consumer-build.log')
+        cargo build --offline -vv --target $target --target-dir (Join-Path $fixture 'target') *> (Join-Path $fixture 'consumer-build.log')
         Confirm-Command 'build an offline external consumer'
         cargo tree --offline | Set-Content (Join-Path $fixture 'consumer-tree.txt') -Encoding utf8NoBOM
         Confirm-Command 'inspect external consumer dependencies'
         $tree = Get-Content (Join-Path $fixture 'consumer-tree.txt') -Raw
         if (@($tree -split '\r?\n' | Where-Object { $_ -match ' v[0-9]' }).Count -ne 2) { throw 'Public crate must have no dependencies' }
         if (Test-Path -LiteralPath $probe) { throw 'Consumer attempted native compilation' }
-        $buildScript = Get-ChildItem (Join-Path $fixture 'target/debug/build/p4rust-*/build-script-build.exe') | Select-Object -First 1
+        $scriptName = if ($IsWindows) { 'build-script-build.exe' } else { 'build-script-build' }
+        $buildScript = Get-ChildItem (Join-Path $fixture "target/debug/build/p4rust-*/$scriptName") | Select-Object -First 1
         if (-not $buildScript) { throw 'Failed to locate packaged Rust build script' }
         Confirm-TargetGuards $buildScript.FullName
-        $exe = Join-Path $fixture 'target/x86_64-pc-windows-msvc/debug/p4rust-external-consumer.exe'
+        $programName = if ($IsWindows) { 'p4rust-external-consumer.exe' } else { 'p4rust-external-consumer' }
+        $exe = Join-Path $fixture "target/$target/debug/$programName"
         if ($ServerEndpoint) { & $exe $ServerEndpoint *> (Join-Path $fixture 'consumer-run.log') }
         else { & $exe *> (Join-Path $fixture 'consumer-run.log') }
         Confirm-Command 'run the packaged external consumer'

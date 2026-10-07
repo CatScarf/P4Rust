@@ -25,7 +25,6 @@ struct Bundle {
 pub(crate) struct Archives;
 
 impl Archives {
-    const TARGET: &str = "x86_64-pc-windows-msvc";
     const TARGETS: &[&str] = &[
         "x86_64-pc-windows-msvc",
         "aarch64-pc-windows-msvc",
@@ -150,13 +149,16 @@ impl Archives {
             .context("Failed to decode compressed SDK inventory")?;
         let mut seen = std::collections::HashSet::new();
         let mut prepared = false;
+        let target = crate::platform::Platform::selected()
+            .context("Failed to select extraction target")?
+            .target;
         for bundle in bundles {
             Self::validate(&bundle).context("Failed to validate compressed SDK inventory")?;
             ensure!(
                 seen.insert(bundle.directory.clone()),
                 "Failed to validate duplicate SDK inventory"
             );
-            if !all && !bundle.directory.ends_with(Self::TARGET) {
+            if !all && !bundle.directory.ends_with(&target) {
                 continue;
             }
             prepared = true;
@@ -381,13 +383,13 @@ mod tests {
         )
         .context("Failed to save fixture inventory")?;
         fs::remove_file(&library).context("Failed to remove fixture extraction")?;
-        Archives::prepare(&root, false).context("Failed to restore missing library")?;
+        Archives::prepare(&root, true).context("Failed to restore missing library")?;
         assert_eq!(
             fs::read(&library).context("Failed to read restored library")?,
             b"fixture library"
         );
         fs::write(&library, b"damaged").context("Failed to damage extracted fixture")?;
-        Archives::prepare(&root, false).context("Failed to restore damaged library")?;
+        Archives::prepare(&root, true).context("Failed to restore damaged library")?;
         assert_eq!(
             fs::read(&library).context("Failed to read repaired library")?,
             b"fixture library"
@@ -397,7 +399,7 @@ mod tests {
             b"damaged",
         )
         .context("Failed to corrupt archive fixture")?;
-        assert!(Archives::prepare(&root, false).is_err());
+        assert!(Archives::prepare(&root, true).is_err());
         Ok(())
     }
 }

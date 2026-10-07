@@ -3,6 +3,66 @@ use crate::{Client, Config, Error, Result, ResultExt};
 struct Fixture;
 
 impl Fixture {
+    // Preserve non-Unicode text bytes returned by the real Perforce server.
+    fn legacy_file(client: &Client, root: &std::path::Path) -> Result<()> {
+        let path = root.join("legacy.txt");
+        let bytes = b"legacy: \xd6\xd0\xff\n";
+        std::fs::write(&path, bytes).context("Failed to write legacy text fixture")?;
+        client
+            .run("add", &["-t", "text", &path.to_string_lossy()])
+            .context("Failed to add legacy text fixture")?;
+        client
+            .run("submit", &["-d", "Add legacy encoding fixture"])
+            .context("Failed to submit legacy text fixture")?;
+        let output = client
+            .run("print", &["-q", "//depot/legacy.txt"])
+            .context("Failed to print legacy text fixture")?;
+        assert_eq!(output.raw.text, bytes);
+        assert!(output.text.starts_with("legacy:"));
+        Ok(())
+    }
+
+    // Stress independent sessions and output buffers through one shared configured client.
+    fn concurrent_reads(client: &Client) -> Result<()> {
+        std::thread::scope(|scope| -> Result<()> {
+            let workers: Vec<_> = (0..8)
+                .map(|_| {
+                    scope.spawn(|| -> Result<()> {
+                        let options = crate::RunOptions {
+                            timeout: Some(std::time::Duration::from_secs(5)),
+                            ..crate::RunOptions::default()
+                        };
+                        for index in 0..10 {
+                            let output = if index % 2 == 0 {
+                                client.run_with_options("info", &[], &options)
+                            } else {
+                                client.run("info", &[])
+                            }
+                            .context("Failed concurrent server info query")?;
+                            assert!(
+                                output
+                                    .records
+                                    .iter()
+                                    .flatten()
+                                    .any(|(key, _)| key == "serverVersion")
+                            );
+                        }
+                        Ok(())
+                    })
+                })
+                .collect();
+            for worker in workers {
+                worker
+                    .join()
+                    .map_err(|_| Error::new("Concurrent server reader panicked"))
+                    .context("Failed to join concurrent server reader")?
+                    .context("Failed to complete concurrent server queries")?;
+            }
+            Ok(())
+        })
+        .context("Failed to stress concurrent server sessions")
+    }
+
     // Verify fingerprint trust, rejected passwords, and ticket authentication over TLS.
     fn authenticate(client: &Client) -> Result<()> {
         let fingerprint = std::env::var("P4RUST_TEST_FINGERPRINT")
@@ -184,5 +244,7 @@ fn local_server_commands() -> Result<()> {
     );
     assert!(client.run("p4rust-invalid-command", &[]).is_err());
     Fixture::files(&client, &root).context("Failed to verify native output callbacks")?;
+    Fixture::legacy_file(&client, &root).context("Failed to verify legacy output bytes")?;
+    Fixture::concurrent_reads(&client).context("Failed to verify concurrent server commands")?;
     Ok(())
 }

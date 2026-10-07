@@ -42,7 +42,7 @@ function Remove-Unreachable([string]$Library, [string[]]$Trace) {
 
 foreach ($library in $libraries) { Remove-Debug $library }
 $probe = Join-Path $LibraryDirectory 'dependency-probe.dll'
-$arguments = @('/NOLOGO', '/DLL', '/INCREMENTAL:NO', '/OPT:NOREF', '/VERBOSE', '/EXPORT:p4rust_abi_version', '/EXPORT:p4rust_execute_v1', "/OUT:$probe", "/LIBPATH:$LibraryDirectory")
+$arguments = @('/NOLOGO', '/DLL', '/INCREMENTAL:NO', '/OPT:NOREF', '/VERBOSE', '/EXPORT:p4rust_abi_version', '/EXPORT:p4rust_execute_v1', '/EXPORT:p4rust_execute_controlled_v1', "/OUT:$probe", "/LIBPATH:$LibraryDirectory")
 $arguments += @($libraries | ForEach-Object { "$_.lib" })
 $arguments += @($systemLibraries | ForEach-Object { "$_.lib" })
 $trace = & link.exe @arguments 2>&1

@@ -12,6 +12,7 @@ pub const ERROR: u32 = 6;
 
 pub type Callback =
     unsafe extern "C" fn(*mut c_void, u32, *const u8, usize, *const u8, usize) -> i32;
+pub type Alive = unsafe extern "C" fn(*mut c_void) -> i32;
 
 #[repr(C)]
 pub struct Options {
@@ -28,12 +29,14 @@ unsafe extern "C" {
     /// Query the version of the linked native ABI.
     pub fn p4rust_abi_version() -> u32;
     /// Execute synchronously with valid strings, pointers, and a non-unwinding callback.
-    pub fn p4rust_execute_v1(
+    pub fn p4rust_execute_controlled_v1(
         options: *const Options,
         command: *const c_char,
         argc: i32,
         argv: *const *const c_char,
         callback: Callback,
         context: *mut c_void,
+        alive: Option<Alive>,
+        control: *mut c_void,
     ) -> i32;
 }

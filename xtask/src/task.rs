@@ -91,6 +91,20 @@ impl Task {
         if command != "build" && !extra.is_empty() {
             return Err(Error::new("Failed to validate xtask options"));
         }
+        let platform =
+            crate::platform::Platform::selected().context("Failed to select Cargo target")?;
+        if command == "check" {
+            let separator = args
+                .iter()
+                .position(|arg| arg == "--")
+                .context("Failed to locate Clippy option separator")?;
+            args.splice(
+                separator..separator,
+                ["--target".into(), platform.target.clone()],
+            );
+        } else {
+            args.extend(["--target".into(), platform.target.clone()]);
+        }
         args.extend_from_slice(extra);
         Self::command(root, "cargo", &args).context("Failed to run Cargo")?;
         if command == "package" {
