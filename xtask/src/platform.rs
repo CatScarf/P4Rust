@@ -88,6 +88,8 @@ impl Platform {
             .cargo_metadata(false);
         if self.msvc() {
             compiler.flag("/EHsc");
+        } else if self.windows() && Path::new("C:/msys64/mingw64/bin/g++.exe").is_file() {
+            compiler.compiler("C:/msys64/mingw64/bin/g++.exe");
         }
         if self.windows() {
             compiler.define("OS_NT", None).define("NOMINMAX", None);

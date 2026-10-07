@@ -3,6 +3,8 @@
 - `cargo xtask prepare`: verify and extract the selected SDK target.
 - `cargo xtask prepare --all`: extract all retained 64-bit SDK targets.
 - `cargo xtask build [Cargo options]`: prepare the SDK, compile native libraries, and build Rust.
+- `cargo xtask ci`: install runner dependencies, build native and Rust libraries, run Clippy, and package.
+- `cargo xtask publish`: merge seven platform artifacts and create or replace the versioned GitHub release.
 - `cargo xtask check`: prepare libraries and run strict workspace Clippy.
 - `cargo xtask package`: prepare libraries and verify the public crate offline.
 - `cargo xtask native [--openssl-lib-dir <cache>]`: rebuild the native release with the maintainer toolchain, without tracking generated libraries.
@@ -15,3 +17,5 @@ The public package contains extracted native libraries so downstream builds need
 Native production requires a target-compatible C++ compiler, Perl, PowerShell 7, LLVM archive tools, and NASM on x64. MSVC uses nmake; Linux, macOS, and MinGW use make. Windows GNU uses MSYS2 MINGW64 (MSVCRT) and `P4RUST_RUNTIME_LICENSE_DIR` pointing to its `share/licenses` directory. `P4RUST_OBJCOPY`, `P4RUST_STRIP`, and `P4RUST_AR` override LLVM tools; `P4RUST_JOM` enables parallel MSVC OpenSSL builds. OpenSSL production is cached locally; `native --openssl-lib-dir <cache>` accepts an explicit static-library cache.
 
 `bundle-release.ps1` merges seven target crates into the versioned release ZIP and rejects missing, oversized, or mismatched packages. The release workflow reads the public crate version automatically and replaces same-version assets. GitHub Releases must remain mutable to allow replacements.
+
+External commands use one executor and print `> <command>` before execution.

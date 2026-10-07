@@ -1,4 +1,5 @@
 use crate::{
+    automation::command::Runner,
     error::{Result, ResultExt, ensure},
     platform::Platform,
     prune::Prune,
@@ -71,11 +72,13 @@ impl Release {
             .context("Failed to locate GNU compiler")?;
         let mut paths = Vec::new();
         for name in ["libstdc++.a", "libwinpthread.a", "libgcc.a", "libgcc_eh.a"] {
-            let output = compiler
-                .to_command()
-                .arg(format!("-print-file-name={name}"))
-                .output()
-                .context("Failed to locate GNU runtime archive")?;
+            let output = Runner::run(
+                compiler
+                    .to_command()
+                    .arg(format!("-print-file-name={name}")),
+                true,
+            )
+            .context("Failed to locate GNU runtime archive")?;
             ensure!(
                 output.status.success(),
                 "Failed to query GNU runtime archive"
@@ -89,7 +92,7 @@ impl Release {
             paths.push(path);
         }
         let licenses = std::env::var_os("P4RUST_RUNTIME_LICENSE_DIR")
-            .context("Failed to locate GNU runtime license directory")?;
+            .unwrap_or_else(|| "C:/msys64/mingw64/share/licenses".into());
         let directory = Path::new(&licenses);
         let gcc_notices: &[&str] = if directory.join("gcc-libs").is_dir() {
             &["gcc-libs", "winpthreads"]

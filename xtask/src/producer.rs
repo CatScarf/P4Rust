@@ -1,4 +1,5 @@
 use crate::{
+    automation::command::Runner,
     error::{Result, ResultExt, ensure},
     openssl,
     platform::Platform,
@@ -37,10 +38,59 @@ impl Producer {
             .out_dir(&self.output)
             .include(self.root.join("sdk/include/p4"))
             .file(self.root.join("native/client.cc"));
-        compiler
-            .try_compile("p4rust_bridge")
-            .context("Failed to precompile C ABI bridge")?;
-        Ok(self.output.join(self.platform.bridge()))
+        let tool = compiler
+            .try_get_compiler()
+            .context("Failed to locate C ABI compiler")?;
+        let object = self.output.join(if self.platform.msvc() {
+            "client.obj"
+        } else {
+            "client.o"
+        });
+        let mut command = tool.to_command();
+        if self.platform.msvc() {
+            command
+                .args([
+                    "/c",
+                    "/std:c++17",
+                    "/O2",
+                    "/MD",
+                    "/EHsc",
+                    "/DOS_NT",
+                    "/DNOMINMAX",
+                ])
+                .arg(format!("/I{}", self.root.join("sdk/include/p4").display()))
+                .arg(format!("/Fo{}", object.display()));
+        } else {
+            command
+                .args(["-c", "-std=c++17", "-O2", "-fPIC", "-I"])
+                .arg(self.root.join("sdk/include/p4"))
+                .arg("-o")
+                .arg(&object)
+                .arg(if self.platform.windows() {
+                    "-DOS_NT"
+                } else if self.platform.apple() {
+                    "-DOS_MACOSX"
+                } else {
+                    "-DOS_LINUX"
+                });
+        }
+        command.arg(self.root.join("native/client.cc"));
+        Runner::run(&mut command, false).context("Failed to precompile C ABI bridge")?;
+        let archive = self.output.join(self.platform.bridge());
+        let mut command = if self.platform.msvc() {
+            let mut command = std::process::Command::new("lib.exe");
+            command
+                .args(["/NOLOGO", "/BREPRO"])
+                .arg(format!("/OUT:{}", archive.display()));
+            command.envs(tool.env().iter().cloned());
+            command
+        } else {
+            let mut command = std::process::Command::new(Platform::utility("P4RUST_AR", "llvm-ar"));
+            command.arg("rcs").arg(&archive);
+            command
+        };
+        Runner::run(command.arg(&object), false).context("Failed to archive C ABI bridge")?;
+        Ok(archive)
     }
 
     // Build OpenSSL on the producer or reuse explicitly supplied static libraries.

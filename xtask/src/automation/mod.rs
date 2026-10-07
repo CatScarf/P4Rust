@@ -3,6 +3,10 @@ use crate::{
     archive::Archives,
     error::{Error, Result, ResultExt},
 };
+pub(crate) mod command;
+mod dependencies;
+mod github;
+use command::Runner;
 use std::{
     path::{Path, PathBuf},
     process::Command,
@@ -11,6 +15,19 @@ use std::{
 pub(crate) struct Task;
 
 impl Task {
+    // Prepare runner dependencies once and produce a checked distributable crate.
+    fn ci(root: &Path) -> Result<()> {
+        let platform =
+            crate::platform::Platform::selected().context("Failed to select CI target")?;
+        dependencies::Dependencies::install(&platform)
+            .context("Failed to prepare CI dependencies")?;
+        Archives::prepare(root, false).context("Failed to prepare CI SDK")?;
+        Producer::run().context("Failed to build CI native libraries")?;
+        Self::cargo(root, "build", &["--release".into()])
+            .context("Failed to build CI Rust library")?;
+        Self::cargo(root, "check", &[]).context("Failed CI Clippy")?;
+        Self::cargo(root, "package", &[]).context("Failed to package CI crate")
+    }
     // Find the repository without depending on the invocation directory.
     fn root() -> Result<PathBuf> {
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -21,14 +38,8 @@ impl Task {
 
     // Run a child process and propagate both launch and exit failures.
     fn command(root: &Path, program: &str, args: &[String]) -> Result<()> {
-        let status = Command::new(program)
-            .args(args)
-            .current_dir(root)
-            .status()
-            .with_context(|| format!("Failed to start {program}"))?;
-        if !status.success() {
-            return Err(Error::new(format!("Failed to execute {program}: {status}")));
-        }
+        Runner::run(Command::new(program).args(args).current_dir(root), false)
+            .with_context(|| format!("Failed to run {program}"))?;
         Ok(())
     }
 
@@ -38,6 +49,10 @@ impl Task {
         let args: Vec<String> = std::env::args().skip(1).collect();
         let command = args.first().map(String::as_str).unwrap_or("help");
         match command {
+            "ci" if args.len() == 1 => Self::ci(&root).context("Failed to build CI package"),
+            "publish" if args.len() == 1 => {
+                github::GitHub::publish(&root).context("Failed to publish release")
+            }
             "archive" => Archives::refresh(&root).context("Failed to refresh compressed libraries"),
             "prepare"
                 if args.len() == 1
@@ -58,7 +73,7 @@ impl Task {
             }
             "help" if args.len() <= 1 => {
                 println!(
-                    "cargo xtask <prepare [--all]|build [Cargo options]|check|package|native [--openssl-lib-dir <cache>]|archive>"
+                    "cargo xtask <prepare [--all]|build [Cargo options]|check|package|ci|publish|native [--openssl-lib-dir <cache>]|archive>"
                 );
                 Ok(())
             }
@@ -114,16 +129,7 @@ impl Task {
 
     // Reject oversized distributable crates using Cargo's actual package directory.
     fn package_limit(root: &Path) -> Result<()> {
-        let output = Command::new("cargo")
-            .args(["metadata", "--no-deps", "--format-version", "1"])
-            .current_dir(root)
-            .output()
-            .context("Failed to read Cargo metadata")?;
-        if !output.status.success() {
-            return Err(Error::new("Failed to query Cargo package metadata"));
-        }
-        let metadata: serde_json::Value =
-            serde_json::from_slice(&output.stdout).context("Failed to decode Cargo metadata")?;
+        let metadata = Self::metadata(root).context("Failed to read package metadata")?;
         let package = metadata["packages"]
             .as_array()
             .context("Failed to read Cargo packages")?
@@ -147,5 +153,17 @@ impl Task {
         }
         println!("Public crate: {bytes} bytes (limit: 10000000)");
         Ok(())
+    }
+
+    // Read Cargo's package version and output paths without compiling native code.
+    fn metadata(root: &Path) -> Result<serde_json::Value> {
+        let output = Runner::run(
+            Command::new("cargo")
+                .args(["metadata", "--no-deps", "--format-version", "1"])
+                .current_dir(root),
+            true,
+        )
+        .context("Failed to query Cargo metadata")?;
+        serde_json::from_slice(&output.stdout).context("Failed to decode Cargo metadata")
     }
 }

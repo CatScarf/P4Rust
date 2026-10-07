@@ -14,22 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  metadata:
-    runs-on: ubuntu-24.04
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-    steps:
-      - uses: actions/checkout@v5
-      - name: Read crate version
-        id: version
-        shell: bash
-        run: |
-          set -euo pipefail
-          version=$(cargo metadata --no-deps --format-version 1 | jq -er '.packages[] | select(.name == "p4rust") | .version')
-          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
-
   build:
-    needs: metadata
     strategy:
       fail-fast: false
       matrix:
@@ -55,90 +40,22 @@ jobs:
       MACOSX_DEPLOYMENT_TARGET: '12.0'
     steps:
       - uses: actions/checkout@v5
-      - name: Install Rust target
+      - name: Install Rust
         shell: bash
-        run: |
-          set -euo pipefail
-          rustup update stable --no-self-update
-          rustup default stable
-          rustup target add "$P4RUST_TARGET"
-      - name: Install Linux tools
-        if: runner.os == 'Linux'
-        shell: bash
-        run: sudo apt-get update && sudo apt-get install -y build-essential perl nasm llvm
-      - name: Install Apple tools
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          brew install llvm nasm
-          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
-      - name: Install MSVC tools
-        if: contains(matrix.target, 'windows-msvc')
+        run: rustup update stable --no-self-update && rustup default stable
+      - name: Build, lint, and package
         shell: pwsh
-        run: |
-          if (-not (Get-Command perl -ErrorAction SilentlyContinue)) {
-            choco install strawberryperl --yes --no-progress
-            if ($LASTEXITCODE -ne 0) { throw 'Failed to install Perl' }
-            'C:\Strawberry\perl\bin' >> $env:GITHUB_PATH
-          }
-          if ($env:P4RUST_TARGET -eq 'x86_64-pc-windows-msvc' -and -not (Get-Command nasm -ErrorAction SilentlyContinue)) {
-            choco install nasm --yes --no-progress
-            if ($LASTEXITCODE -ne 0) { throw 'Failed to install NASM' }
-            'C:\Program Files\NASM' >> $env:GITHUB_PATH
-          }
-      - name: Install MinGW tools
-        if: matrix.target == 'x86_64-pc-windows-gnu'
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          path-type: inherit
-          install: >-
-            make perl
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-llvm
-            mingw-w64-x86_64-nasm
-      - name: Build and package
-        if: matrix.target != 'x86_64-pc-windows-gnu'
-        shell: pwsh
-        run: |
-          cargo xtask build --release
-          if ($LASTEXITCODE -ne 0) { throw 'Failed to build native and Rust libraries' }
-          cargo xtask check
-          if ($LASTEXITCODE -ne 0) { throw 'Failed strict Clippy' }
-          cargo xtask package
-          if ($LASTEXITCODE -ne 0) { throw 'Failed to package native and Rust libraries' }
-      - name: Build and package MinGW
-        if: matrix.target == 'x86_64-pc-windows-gnu'
-        shell: msys2 {0}
-        env:
-          CC_x86_64_pc_windows_gnu: gcc
-          CXX_x86_64_pc_windows_gnu: g++
-          AR_x86_64_pc_windows_gnu: ar
-          RANLIB: ranlib
-          P4RUST_RUNTIME_LICENSE_DIR: C:/msys64/mingw64/share/licenses
-        run: |
-          set -euo pipefail
-          cargo xtask build --release
-          cargo xtask check
-          cargo xtask package
-      - name: Enforce package size
-        shell: pwsh
-        env:
-          VERSION: ${{ needs.metadata.outputs.version }}
-        run: |
-          $archive = "target/package/p4rust-$env:VERSION.crate"
-          if (-not (Test-Path $archive) -or (Get-Item $archive).Length -ge 10000000) { throw 'Invalid or oversized public package' }
+        run: cargo xtask ci
       - uses: actions/upload-artifact@v4
         with:
           name: p4rust-${{ matrix.target }}
-          path: target/package/p4rust-${{ needs.metadata.outputs.version }}.crate
+          path: target/package/p4rust-*.crate
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
 
   release:
-    needs: [metadata, build]
+    needs: build
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
@@ -149,30 +66,8 @@ jobs:
         with:
           pattern: p4rust-*
           path: temp/release-inputs
-      - name: Merge seven platform packages
+      - name: Publish versioned release
         shell: pwsh
         env:
-          VERSION: ${{ needs.metadata.outputs.version }}
-        run: ./xtask/scripts/bundle-release.ps1 -Version $env:VERSION -InputDirectory temp/release-inputs -OutputDirectory temp/release-output
-      - name: Create or replace versioned release
-        shell: bash
-        env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.metadata.outputs.version }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          tag="v$VERSION"
-          asset="p4rust-$VERSION.zip"
-          archive="temp/release-output/$asset"
-          if gh release view "$tag" --repo "$REPOSITORY" >/dev/null 2>&1; then
-            gh api --method PATCH "repos/$REPOSITORY/git/refs/tags/$tag" -f sha="$GITHUB_SHA" -F force=true
-            gh release upload "$tag" "$archive" --repo "$REPOSITORY" --clobber
-            gh release edit "$tag" --repo "$REPOSITORY" --draft=false --prerelease=false --title "P4Rust $VERSION" --notes "Precompiled packages for all seven supported targets. Source commit: $GITHUB_SHA." --latest
-            gh api "repos/$REPOSITORY/releases/tags/$tag" --jq '.assets[] | [.id, .name] | @tsv' |
-              while IFS=$'\t' read -r id name; do
-                if [[ "$name" != "$asset" ]]; then gh api --method DELETE "repos/$REPOSITORY/releases/assets/$id"; fi
-              done
-          else
-            gh release create "$tag" "$archive" --repo "$REPOSITORY" --target "$GITHUB_SHA" --title "P4Rust $VERSION" --notes "Precompiled packages for all seven supported targets. Source commit: $GITHUB_SHA." --latest
-          fi
+        run: cargo xtask publish

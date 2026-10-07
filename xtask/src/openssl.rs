@@ -1,4 +1,5 @@
-use crate::error::{Result, ResultExt, ensure};
+use crate::automation::command::Runner;
+use crate::error::{Result, ResultExt};
 use crate::platform::Platform;
 use sha2::Digest;
 use std::{fs, path::Path, process::Command};
@@ -58,16 +59,14 @@ impl OpenSsl {
             .compiler()
             .try_get_compiler()
             .context("Failed to locate OpenSSL production compiler")?;
-        let status = Command::new(program)
-            .args(args)
-            .current_dir(source)
-            .envs(tool.env().iter().cloned())
-            .status()
-            .with_context(|| format!("Failed to start OpenSSL production command {program}"))?;
-        ensure!(
-            status.success(),
-            "Failed to run OpenSSL production command {program}"
-        );
+        Runner::run(
+            Command::new(program)
+                .args(args)
+                .current_dir(source)
+                .envs(tool.env().iter().cloned()),
+            false,
+        )
+        .with_context(|| format!("Failed to start OpenSSL production command {program}"))?;
         Ok(())
     }
 

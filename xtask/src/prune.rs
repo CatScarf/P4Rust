@@ -1,4 +1,5 @@
 use crate::{
+    automation::command::Runner,
     error::{Result, ResultExt, ensure},
     platform::Platform,
 };
@@ -14,9 +15,7 @@ pub(crate) struct Prune;
 impl Prune {
     // Run a native archive tool and retain its diagnostics on failure.
     fn command(command: &mut Command) -> Result<String> {
-        let output = command
-            .output()
-            .context("Failed to launch native archive tool")?;
+        let output = Runner::run(command, true).context("Failed to launch native archive tool")?;
         ensure!(
             output.status.success(),
             "Failed to run native archive tool: {}",
@@ -92,17 +91,18 @@ impl Prune {
             .compiler()
             .try_get_compiler()
             .context("Failed to locate MSVC pruning toolchain")?;
-        let status = Command::new("pwsh")
-            .args(["-NoProfile", "-File"])
-            .arg(root.join("xtask/scripts/prune-native.ps1"))
-            .arg("-LibraryDirectory")
-            .arg(staging)
-            .arg("-Objcopy")
-            .arg(Platform::utility("P4RUST_OBJCOPY", "llvm-objcopy"))
-            .envs(tool.env().iter().cloned())
-            .status()
-            .context("Failed to start MSVC pruning")?;
-        ensure!(status.success(), "Failed to prune MSVC libraries: {status}");
+        Runner::run(
+            Command::new("pwsh")
+                .args(["-NoProfile", "-File"])
+                .arg(root.join("xtask/scripts/prune-native.ps1"))
+                .arg("-LibraryDirectory")
+                .arg(staging)
+                .arg("-Objcopy")
+                .arg(Platform::utility("P4RUST_OBJCOPY", "llvm-objcopy"))
+                .envs(tool.env().iter().cloned()),
+            false,
+        )
+        .context("Failed to start MSVC pruning")?;
         Ok(())
     }
 
@@ -171,9 +171,8 @@ impl Prune {
                 command.args(["-pthread", "-ldl", "-lresolv"]);
             }
         }
-        let output = command
-            .output()
-            .context("Failed to link ABI dependency probe")?;
+        let output =
+            Runner::run(&mut command, true).context("Failed to link ABI dependency probe")?;
         ensure!(
             output.status.success(),
             "Failed to link ABI dependency probe: {}",
