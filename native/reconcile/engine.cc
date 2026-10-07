@@ -82,6 +82,7 @@ std::vector<p4rust_field_v2> Fields::Frame() const {
 }
 // Reproduce Confirm's field copying from the original request rather than the current buffer.
 void Fields::Reply(Client* client) const {
+    if (client->protocolServer < 6) client->GetEnv();
     for (const auto& field : values) {
         if (field.first == "func" || field.first == "data" || field.first == "kind" || field.first == "localPath") continue;
         StrRef key(field.first.data(), static_cast<int>(field.first.size()));

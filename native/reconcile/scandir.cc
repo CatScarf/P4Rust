@@ -7,12 +7,16 @@ class DirectoryTask final : public Task {
     MapApi mapping;
     Ignore ignore;
     std::string path;
+    std::shared_ptr<StrArray> listing;
+    int first;
 public:
     // Give each scan its own mapping, ignore cache, and filename converter.
-    DirectoryTask(std::shared_ptr<ScanContext> scan, const std::string& local)
-        : Task(scan->scope, "directory"), context(std::move(scan)), path(local) {
+    DirectoryTask(std::shared_ptr<ScanContext> scan, const std::string& local,
+        std::shared_ptr<StrArray> names_list = {}, int start = -1)
+        : Task(scan->scope, "directory"), context(std::move(scan)), path(local), listing(std::move(names_list)), first(start) {
         request = context->metadata;
         request.Set("kind", "directory"); request.Set("localPath", path);
+        if (first >= 0) request.Set("first", std::to_string(first));
         mapping.SetCaseSensitivity(context->nocase ? Insensitive : Sensitive);
         for (const auto& rule : context->mappings)
             mapping.Insert(StrRef(rule.left.c_str()), StrRef(rule.right.c_str()), rule.type);
@@ -22,6 +26,7 @@ public:
     // Enumerate one directory with SDK paths, ignore rules, and symlink behavior.
     void Run() override {
         Check();
+        if (first >= 0) { ProbeChunk(); return; }
         std::unique_ptr<FileSys> file(FileSys::Create(FST_BINARY));
         if (!file) throw std::runtime_error("Failed to create reconcile directory probe");
         file->EnableStatCache(); file->SetContentCharSetPriv(context->charset);
@@ -34,14 +39,23 @@ public:
         }
         if (Rejected(path, true)) return;
         Error error;
-        std::unique_ptr<StrArray> names_list(file->ScanDir(&error));
+        listing.reset(file->ScanDir(&error));
         CheckError(error, "Failed to scan reconcile directory");
-        if (!names_list) throw std::runtime_error("Failed to receive reconcile directory entries");
-        names_list->Sort(!StrBuf::CaseUsage());
+        if (!listing) throw std::runtime_error("Failed to receive reconcile directory entries");
+        listing->Sort(!StrBuf::CaseUsage());
+        result.Set("entries", std::to_string(listing->Count()));
+    }
+    // Stat bounded filename chunks concurrently without retaining full paths for an entire directory.
+    void ProbeChunk() {
+        std::unique_ptr<FileSys> file(FileSys::Create(FST_BINARY));
+        if (!file) throw std::runtime_error("Failed to create reconcile metadata probe");
+        file->EnableStatCache(); file->SetContentCharSetPriv(context->charset);
+        file->Set(StrRef(path.c_str()));
         std::unique_ptr<PathSys> joined(PathSys::Create());
         joined->SetCharSet(file->GetCharSetPriv());
-        for (int i = 0; i < names_list->Count(); ++i) {
-            Check(); joined->SetLocal(StrRef(path.c_str()), *names_list->Get(i));
+        const int end = std::min(listing->Count(), first + 64);
+        for (int i = first; i < end; ++i) {
+            Check(); joined->SetLocal(StrRef(path.c_str()), *listing->Get(i));
             const std::string child = joined->Text();
             if (context->Known(child.c_str())) continue;
             file->Set(*joined);
@@ -82,7 +96,14 @@ public:
     // Schedule child work through bounded Rust admission on the connection thread.
     void Commit(int) override {
         Check();
-        if (context->progress) context->progress->Increment(1);
+        if (first < 0 && context->progress) context->progress->Increment(1);
+        if (first < 0 && listing) {
+            for (int i = 0; i < listing->Count(); i += 64) {
+                Check();
+                scope.Submit(new DirectoryTask(context, path, listing, i));
+            }
+            return;
+        }
         for (const auto& entry : entries) {
             Check();
             if (entry.directory) ScheduleDirectory(context, entry.path);
