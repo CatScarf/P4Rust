@@ -11,6 +11,11 @@ pub(super) struct Bundle;
 impl Bundle {
     // Combine one common Rust package and six platform resources into a single ZIP.
     pub(super) fn create(root: &Path, version: &str) -> Result<()> {
+        let metadata =
+            super::Task::metadata(root).context("Failed to read bundle resource versions")?;
+        let packages = metadata["packages"]
+            .as_array()
+            .context("Failed to enumerate bundle resources")?;
         let output = root.join("temp/release-output");
         fs::create_dir_all(&output).context("Failed to create release output directory")?;
         let file = fs::File::create(output.join(format!("p4rust-{version}.zip")))
@@ -33,9 +38,16 @@ impl Bundle {
                 public_hash = Some(hash);
                 Self::append(&mut zip, &public, &bytes).context("Failed to bundle Rust package")?;
             }
-            let resource = input.join(format!("p4rust-resources-{target}-{version}.crate"));
+            let name = format!("p4rust-resources-{target}");
+            let resource_version = packages
+                .iter()
+                .find(|package| package["name"] == name)
+                .context("Failed to select bundle resource")?["version"]
+                .as_str()
+                .context("Failed to read bundle resource version")?;
+            let resource = input.join(format!("{name}-{resource_version}.crate"));
             let bytes = Self::read(&resource).context("Failed to read resource package")?;
-            Self::validate(&resource, target, version)
+            Self::validate(&resource, target, resource_version)
                 .context("Failed to verify resource package")?;
             Self::append(&mut zip, &resource, &bytes)
                 .context("Failed to bundle resource package")?;

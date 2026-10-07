@@ -24,6 +24,10 @@ impl GitHub {
             .as_str()
             .context("Failed to read release version")?;
         super::bundle::Bundle::create(root, version).context("Failed to merge release ZIP")?;
+        super::registry::Registry::publish(root)
+            .context("Failed to publish checked crates.io packages")?;
+        super::bundle::Bundle::create(root, version)
+            .context("Failed to bundle canonical published packages")?;
         let repository =
             env::var("GITHUB_REPOSITORY").context("Failed to read release repository")?;
         let sha = env::var("GITHUB_SHA").context("Failed to read release commit")?;

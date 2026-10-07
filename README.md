@@ -49,4 +49,4 @@ Binding code is licensed under MIT; resource crates retain the Perforce and Open
 
 ## Maintainers
 
-[xtask](xtask/README.md) builds native resources and packages all six targets. GitHub Actions runs builds and Clippy, then releases one ZIP containing the Rust crate and six resource crates.
+[xtask](xtask/README.md) builds native resources and packages all six targets. GitHub Actions runs builds and Clippy, publishes changed crates.io versions, then releases one ZIP containing the Rust crate and six resource crates.

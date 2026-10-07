@@ -11,3 +11,4 @@
 
 /resources/*/native/
 /resources/*/*-LICENSE.txt
+/resources/*/NATIVE-INPUTS.sha256

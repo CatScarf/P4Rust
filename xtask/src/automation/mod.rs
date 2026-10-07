@@ -8,6 +8,7 @@ mod cache;
 pub(crate) mod command;
 mod dependencies;
 mod github;
+mod registry;
 use command::Runner;
 use std::{
     path::{Path, PathBuf},
@@ -24,7 +25,11 @@ impl Task {
         cache::Preparation::dependencies(root, &platform)
             .context("Failed to prepare CI dependencies")?;
         Sdk::prepare(root).context("Failed to prepare CI SDK")?;
-        Producer::run().context("Failed to build CI native libraries")?;
+        if !registry::Registry::prepare(root, &platform)
+            .context("Failed to select reusable CI native libraries")?
+        {
+            Producer::run().context("Failed to build CI native libraries")?;
+        }
         Self::cargo(root, "build", &["--release".into()])
             .context("Failed to build CI Rust library")?;
         Self::cargo(root, "check", &[]).context("Failed CI Clippy")?;
@@ -58,6 +63,9 @@ impl Task {
             "publish" if args.len() == 1 => {
                 github::GitHub::publish(&root).context("Failed to publish release")
             }
+            "publish-plan" if args.len() == 1 => {
+                registry::Registry::preview(&root).context("Failed to preview registry publication")
+            }
             "prepare"
                 if args.len() == 1
                     || args.get(1).is_some_and(|arg| arg == "--all") && args.len() == 2 =>
@@ -76,7 +84,7 @@ impl Task {
             }
             "help" if args.len() <= 1 => {
                 println!(
-                    "cargo xtask <prepare|build [Cargo options]|check|package|ci-cache|ci|publish|native [--openssl-lib-dir <cache>]>"
+                    "cargo xtask <prepare|build [Cargo options]|check|package|ci-cache|ci|publish|publish-plan|native [--openssl-lib-dir <cache>]>"
                 );
                 Ok(())
             }
@@ -141,38 +149,24 @@ impl Task {
     // Reject oversized distributable crates using Cargo's actual package directory.
     fn package_limit(root: &Path, platform: &crate::platform::Platform) -> Result<()> {
         let metadata = Self::metadata(root).context("Failed to read package metadata")?;
-        let package = metadata["packages"]
-            .as_array()
-            .context("Failed to read Cargo packages")?
-            .iter()
-            .find(|package| package["name"].as_str() == Some("p4rust"))
-            .context("Failed to locate public crate")?;
-        let version = package["version"]
-            .as_str()
-            .context("Failed to read public crate version")?;
         let directory = metadata["target_directory"]
             .as_str()
             .context("Failed to locate Cargo output directory")?;
         let packages = metadata["packages"]
             .as_array()
             .context("Failed to inspect resource versions")?;
-        for package in packages.iter().filter(|package| {
-            package["name"]
-                .as_str()
-                .is_some_and(|name| name.starts_with("p4rust-resources-"))
-        }) {
-            if package["version"].as_str() != Some(version) {
-                return Err(Error::new(
-                    "Failed to validate synchronized resource versions",
-                ));
-            }
-        }
         let destination = root.join("temp/ci-artifacts");
         std::fs::create_dir_all(&destination).context("Failed to create CI artifact directory")?;
         for name in [
             "p4rust".to_owned(),
             format!("p4rust-resources-{}", platform.target),
         ] {
+            let version = packages
+                .iter()
+                .find(|package| package["name"] == name)
+                .context("Failed to locate independently versioned package")?["version"]
+                .as_str()
+                .context("Failed to read independent package version")?;
             let archive = Path::new(directory).join(format!("package/{name}-{version}.crate"));
             Self::stage_package(&archive, &destination)
                 .context("Failed to stage release package")?;

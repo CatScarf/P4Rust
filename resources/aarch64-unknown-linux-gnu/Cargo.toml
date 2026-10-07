@@ -6,7 +6,7 @@ license = "MIT AND BSD-2-Clause AND Apache-2.0"
 description = "Precompiled Perforce C ABI resources for aarch64-unknown-linux-gnu"
 repository = "https://github.com/CatScarf/P4Rust"
 links = "p4rust_abi_v2_aarch64_unknown_linux_gnu"
-include = ["src/**", "/build.rs", "native/**", "/LICENSE", "/PERFORCE-LICENSE.txt", "/OPENSSL-LICENSE.txt", "/Cargo.toml"]
+include = ["src/**", "/build.rs", "native/**", "/LICENSE", "/NATIVE-INPUTS.sha256", "/PERFORCE-LICENSE.txt", "/OPENSSL-LICENSE.txt", "/Cargo.toml"]
 
 [lints.clippy]
 unwrap_used = "deny"

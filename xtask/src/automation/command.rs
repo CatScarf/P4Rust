@@ -6,6 +6,20 @@ pub(crate) struct Runner;
 impl Runner {
     // Print and execute every explicit child command with consistent failure context.
     pub(crate) fn run(command: &mut process::Command, capture: bool) -> Result<process::Output> {
+        Self::execute(command, capture, None).context("Failed to execute command")
+    }
+
+    // Pass private request configuration through stdin without printing its contents.
+    pub(crate) fn input(command: &mut process::Command, input: &[u8]) -> Result<process::Output> {
+        Self::execute(command, true, Some(input)).context("Failed to execute command with input")
+    }
+
+    // Apply shared logging, environment, and error handling to every child process.
+    fn execute(
+        command: &mut process::Command,
+        capture: bool,
+        input: Option<&[u8]>,
+    ) -> Result<process::Output> {
         Self::environment(command).context("Failed to prepare command environment")?;
         let display = std::iter::once(command.get_program())
             .chain(command.get_args())
@@ -23,20 +37,48 @@ impl Runner {
         std::io::stdout()
             .flush()
             .context("Failed to flush command preview")?;
-        if !capture {
+        if capture {
+            command
+                .stdout(process::Stdio::piped())
+                .stderr(process::Stdio::piped());
+        } else {
             command
                 .stdout(process::Stdio::inherit())
                 .stderr(process::Stdio::inherit());
         }
-        let output = command
-            .output()
-            .with_context(|| format!("Failed to launch {display}"))?;
+        let output =
+            Self::launch(command, input).with_context(|| format!("Failed to launch {display}"))?;
         ensure!(
             output.status.success(),
             "Failed to execute {display}: {}\n{}",
             output.status,
             String::from_utf8_lossy(&output.stderr)
         );
+        Ok(output)
+    }
+
+    // Close stdin and reap the process even when writing request configuration fails.
+    fn launch(command: &mut process::Command, input: Option<&[u8]>) -> Result<process::Output> {
+        if input.is_some() {
+            command.stdin(process::Stdio::piped());
+        }
+        let mut child = command.spawn().context("Failed to spawn command")?;
+        let written = match input {
+            Some(input) => child
+                .stdin
+                .take()
+                .context("Failed to open command input")
+                .and_then(|mut stream| {
+                    stream
+                        .write_all(input)
+                        .context("Failed to write command input")
+                }),
+            None => Ok(()),
+        };
+        let output = child
+            .wait_with_output()
+            .context("Failed to wait for command")?;
+        written.context("Failed to supply command input")?;
         Ok(output)
     }
 
