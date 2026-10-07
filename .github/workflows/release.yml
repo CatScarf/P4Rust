@@ -104,6 +104,8 @@ jobs:
         run: |
           cargo xtask build --release
           if ($LASTEXITCODE -ne 0) { throw 'Failed to build native and Rust libraries' }
+          cargo xtask check
+          if ($LASTEXITCODE -ne 0) { throw 'Failed strict Clippy' }
           cargo xtask package
           if ($LASTEXITCODE -ne 0) { throw 'Failed to package native and Rust libraries' }
       - name: Build and package MinGW
@@ -118,6 +120,7 @@ jobs:
         run: |
           set -euo pipefail
           cargo xtask build --release
+          cargo xtask check
           cargo xtask package
       - name: Enforce package size
         shell: pwsh
