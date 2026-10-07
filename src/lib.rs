@@ -16,6 +16,7 @@ pub use error::{CommandStatus, Error, Result, ResultExt};
 pub use output::{Output, RawOutput};
 pub use stream::{CommandStream, Event, Progress, Record};
 pub use stream::{Message, MessageId, ProgressCallback};
+pub use stream::{ProgressKind, ProgressUnit};
 
 /// Explicit settings for a Perforce connection.
 #[derive(Clone, Debug)]

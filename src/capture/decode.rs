@@ -94,8 +94,8 @@ impl Capture {
         }
         Ok(Progress {
             id: values[0] as u64,
-            kind: values[1] as i32,
-            units: values[2] as i32,
+            kind: (values[1] as i32).into(),
+            units: (values[2] as i32).into(),
             description: String::from_utf8_lossy(description).into_owned(),
             raw_description: description.to_vec(),
             total: values[3],

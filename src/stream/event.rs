@@ -1,4 +1,4 @@
-use crate::{CommandStatus, Record};
+use crate::{CommandStatus, ProgressKind, ProgressUnit, Record};
 
 /// One native message identifier and its untranslated format bytes.
 #[derive(Debug)]
@@ -32,8 +32,8 @@ pub enum ProgressCallback {
 #[derive(Debug)]
 pub struct Progress {
     pub id: u64,
-    pub kind: i32,
-    pub units: i32,
+    pub kind: ProgressKind,
+    pub units: ProgressUnit,
     pub description: String,
     pub raw_description: Vec<u8>,
     pub total: i64,

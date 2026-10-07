@@ -24,6 +24,8 @@ fn main() -> Result<()> {
 
 SDK callbacks remain distinct: `Text`, `Info`, `Binary`, `Record`, `RecordPartial`, `Message`, `HandleError`, `OutputError`, and `Finished`. `Info.level` is the original level byte. Structured messages retain severity, generic code, every error ID and format, parameters, and exact SDK `Marshall2` bytes. `Progress` identifies `Description`, `Total`, `Update`, or `Done` and preserves signed counters and failure values.
 
+`Progress.kind` uses `ProgressKind` (send/receive/delete file, files, computation, items, directories); `Progress.units` uses `ProgressUnit` (unspecified, percent, files, kilobytes, megabytes, deltas, items, directories). Both expose `code()` and preserve unrecognized SDK values as `Unknown(i32)`; `CPT_UNKNOWN` becomes `ProgressKind::Unknown(0)`.
+
 `Completed(CommandStatus)` follows native cleanup on success or failure. Its `exit_code` is the bridge return code (0 for success, 1 for failure), and `error_count` is the SDK's server error count when available. The SDK does not launch a process or provide a separate process exit code. A failed completion is followed by `Err`; `Error::command_status()` retains the status through contextual wrapping. SDK `Finished` alone does not indicate success.
 
 Clients and callbacks are coordinated internally. The queue holds at most 64 events with cancellable backpressure. Callback payloads and tagged records are limited to 1 MiB; progress descriptions to 16 KiB. Text events preserve original bytes and callback boundaries; `collect_output()` decodes the concatenated stream, handling split UTF-8 characters and retaining non-UTF-8 bytes. Dropping a stream cancels its command without cancelling other commands sharing the external token.

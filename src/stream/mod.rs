@@ -2,10 +2,12 @@ use crate::{Command, CommandStatus, Output, Result, ResultExt};
 use crate::{capture::Capture, control::Control, native::Native};
 use std::{sync::Arc, thread};
 mod event;
+mod progress;
 pub(crate) mod queue;
 mod record;
 pub use event::{Event, Message, MessageId};
 pub use event::{Progress, ProgressCallback};
+pub use progress::{ProgressKind, ProgressUnit};
 use queue::Queue;
 pub use record::Record;
 
