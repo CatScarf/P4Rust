@@ -36,7 +36,12 @@ void ReconcileScope::Submit(Task* pointer) {
         throw std::runtime_error("Failed to schedule Rust reconcile request");
 }
 // Join native-data users before closing the SDK session.
-void ReconcileScope::Close() { closed = true; producers.clear(); if (callback) Call(6); }
+void ReconcileScope::Close() {
+    if (closed) return;
+    closed = true;
+    producers.clear();
+    if (callback) Call(6);
+}
 // Keep child generation lazy so queue backpressure cannot create a recursive commit chain.
 void ReconcileScope::Defer(std::function<Task*()> supplier) { producers.push_front(std::move(supplier)); }
 // Reserve no more than one additional task before asking Rust to take ownership.
@@ -55,6 +60,9 @@ void ReconcileScope::Drain() { while (Pending()) { if (!Produce()) Call(3); } }
 bool ReconcileScope::Pending() { return !producers.empty() || Call(5) != 0; }
 // Stop the connection and join local work while keeping SDK stack cleanup intact.
 void ReconcileScope::Fail(const char* message) noexcept {
+    user.command_failed.store(true);
+    try { user.Emit(P4RUST_ERROR, message, std::strlen(message)); }
+    catch (const std::exception& error) { std::fprintf(stderr, "Failed to deliver reconcile error: %s\n", error.what()); }
     if (user.interrupt) user.interrupt->failed.store(true);
     std::fprintf(stderr, "Failed to execute reconcile stage: %s\n", message);
     try { Close(); }
