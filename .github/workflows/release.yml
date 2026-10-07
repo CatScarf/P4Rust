@@ -41,6 +41,18 @@ jobs:
       - name: Install Rust
         shell: bash
         run: rustup update stable --no-self-update && rustup default stable
+      - name: Prepare native cache keys
+        id: native-cache
+        shell: pwsh
+        run: cargo xtask ci-cache
+      - uses: actions/cache@v6
+        with:
+          path: temp/native-cache/openssl
+          key: ${{ steps.native-cache.outputs.openssl }}
+      - uses: actions/cache@v6
+        with:
+          path: temp/native-cache/sdk
+          key: ${{ steps.native-cache.outputs.sdk }}
       - name: Build, lint, and package
         shell: pwsh
         run: cargo xtask ci

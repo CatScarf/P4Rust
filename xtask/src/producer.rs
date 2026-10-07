@@ -121,11 +121,8 @@ impl Producer {
             args.is_empty(),
             "Usage: cargo xtask native [--openssl-lib-dir <producer-cache>]"
         );
-        openssl::OpenSsl::build(
-            &self.root.join("temp/native-production/openssl-compact"),
-            &self.platform,
-        )
-        .context("Failed to precompile compact OpenSSL")
+        openssl::OpenSsl::build(&self.root, &self.platform)
+            .context("Failed to precompile compact OpenSSL")
     }
 
     // Install compact archives into the single public release package.

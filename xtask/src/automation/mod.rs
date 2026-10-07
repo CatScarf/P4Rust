@@ -4,6 +4,7 @@ use crate::{
     sdk::Sdk,
 };
 mod bundle;
+mod cache;
 pub(crate) mod command;
 mod dependencies;
 mod github;
@@ -20,7 +21,7 @@ impl Task {
     fn ci(root: &Path) -> Result<()> {
         let platform =
             crate::platform::Platform::selected().context("Failed to select CI target")?;
-        dependencies::Dependencies::install(&platform)
+        cache::Preparation::dependencies(root, &platform)
             .context("Failed to prepare CI dependencies")?;
         Sdk::prepare(root).context("Failed to prepare CI SDK")?;
         Producer::run().context("Failed to build CI native libraries")?;
@@ -50,6 +51,9 @@ impl Task {
         let args: Vec<String> = std::env::args().skip(1).collect();
         let command = args.first().map(String::as_str).unwrap_or("help");
         match command {
+            "ci-cache" if args.len() == 1 => {
+                cache::Preparation::run(&root).context("Failed to prepare CI cache keys")
+            }
             "ci" if args.len() == 1 => Self::ci(&root).context("Failed to build CI package"),
             "publish" if args.len() == 1 => {
                 github::GitHub::publish(&root).context("Failed to publish release")
@@ -72,7 +76,7 @@ impl Task {
             }
             "help" if args.len() <= 1 => {
                 println!(
-                    "cargo xtask <prepare|build [Cargo options]|check|package|ci|publish|native [--openssl-lib-dir <cache>]>"
+                    "cargo xtask <prepare|build [Cargo options]|check|package|ci-cache|ci|publish|native [--openssl-lib-dir <cache>]>"
                 );
                 Ok(())
             }

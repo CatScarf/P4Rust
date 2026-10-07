@@ -1,7 +1,7 @@
 use crate::automation::command::Runner;
+use crate::cache::Cache;
 use crate::error::{Result, ResultExt};
 use crate::platform::Platform;
-use sha2::Digest;
 use std::{fs, path::Path, process::Command};
 
 pub(crate) struct OpenSsl;
@@ -96,29 +96,21 @@ impl OpenSsl {
     }
 
     // Produce TLS archives without debug records or unrelated application protocols.
-    pub(crate) fn build(output: &Path, platform: &Platform) -> Result<std::path::PathBuf> {
-        let compiler = platform
-            .compiler()
-            .try_get_compiler()
-            .context("Failed to identify OpenSSL cache toolchain")?;
-        let policy = if platform.target == "x86_64-pc-windows-msvc" {
-            format!(
-                "OpenSSL-3.6.3-MD-ASFLAGS-empty:{}:{}",
-                compiler.path().display(),
-                Self::OPTIONS.join(" ")
-            )
-        } else {
-            format!(
-                "OpenSSL-3.6.3-release:{}:{}:{}",
-                platform.target,
-                compiler.path().display(),
-                Self::OPTIONS.join(" ")
-            )
-        };
-        let key = format!("{:x}", sha2::Sha256::digest(policy));
-        let source = output.join(key);
-        if Self::cached(&source, platform).context("Failed to inspect OpenSSL cache")? {
-            return Ok(source);
+    pub(crate) fn build(root: &Path, platform: &Platform) -> Result<std::path::PathBuf> {
+        let cache = Cache::openssl(root, platform).context("Failed to select OpenSSL cache")?;
+        let names = platform.ssl_names();
+        if let Some(path) = cache
+            .restore(&[names[0], names[1], "include/openssl/ssl.h"])
+            .context("Failed to inspect OpenSSL cache")?
+        {
+            return Ok(path);
+        }
+        let source = root
+            .join("temp/native-production/openssl-compact")
+            .join(&platform.target);
+        if source.exists() {
+            fs::remove_dir_all(&source)
+                .context("Failed to clear incompatible OpenSSL build tree")?;
         }
         Self::copy(&openssl_src::source_dir(), &source)
             .context("Failed to prepare pinned OpenSSL source")?;
@@ -140,48 +132,8 @@ impl OpenSsl {
             Self::command(&source, "make", &["-j", &jobs, "build_libs"], platform)
                 .context("Failed to compile OpenSSL")?;
         }
-        let mut checksums = serde_json::Map::new();
-        for name in platform.ssl_names() {
-            let bytes =
-                fs::read(source.join(name)).context("Failed to read produced OpenSSL archive")?;
-            checksums.insert(
-                name.into(),
-                format!("{:x}", sha2::Sha256::digest(bytes)).into(),
-            );
-        }
-        fs::write(
-            source.join("p4rust-cache.json"),
-            serde_json::to_vec(&checksums).context("Failed to encode OpenSSL cache")?,
-        )
-        .context("Failed to save OpenSSL cache")?;
-        Ok(source)
-    }
-
-    // Reuse only complete archives matching the current production policy and hashes.
-    fn cached(source: &Path, platform: &Platform) -> Result<bool> {
-        let inventory = source.join("p4rust-cache.json");
-        if !inventory.is_file() {
-            return Ok(false);
-        }
-        let checksums: serde_json::Value =
-            serde_json::from_slice(&fs::read(inventory).context("Failed to read OpenSSL cache")?)
-                .context("Failed to decode OpenSSL cache")?;
-        for name in platform.ssl_names() {
-            let path = source.join(name);
-            if !path.is_file() {
-                return Ok(false);
-            }
-            let hash = format!(
-                "{:x}",
-                sha2::Sha256::digest(
-                    fs::read(path).context("Failed to hash cached OpenSSL library")?
-                )
-            );
-            if checksums[name].as_str() != Some(hash.as_str()) {
-                return Ok(false);
-            }
-        }
-        println!("Reusing verified OpenSSL production cache");
-        Ok(true)
+        cache
+            .save(&source, &[names[0], names[1], "include"])
+            .context("Failed to save compact OpenSSL cache")
     }
 }

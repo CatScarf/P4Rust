@@ -1,5 +1,6 @@
 use crate::error::{Result, ResultExt};
 mod automation;
+mod cache;
 #[path = "../../src/error.rs"]
 // Native command status helpers are shared but unused by the maintainer binary.
 #[allow(dead_code)]

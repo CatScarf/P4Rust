@@ -3,6 +3,7 @@ mod source;
 
 use crate::{
     automation::command::Runner,
+    cache::Cache,
     error::{Result, ResultExt, ensure},
     platform::Platform,
 };
@@ -27,9 +28,27 @@ impl Sdk {
 
     // Build the three required static API libraries using the vendor's dependency rules.
     pub(crate) fn build(root: &Path, ssl: &Path, platform: &Platform) -> Result<PathBuf> {
+        let cache = Cache::sdk(root, platform).context("Failed to select SDK cache")?;
+        let suffix = if platform.msvc() { "lib" } else { "a" };
+        let libraries: Vec<_> = ["client", "rpc", "supp"]
+            .iter()
+            .map(|name| format!("lib{name}.{suffix}"))
+            .collect();
+        let names: Vec<_> = libraries.iter().map(String::as_str).collect();
+        let reusable = ssl == root.join("temp/native-cache/openssl");
+        if reusable
+            && let Some(path) = cache
+                .restore(&names)
+                .context("Failed to inspect SDK cache")?
+        {
+            return Ok(path);
+        }
         let source = Self::source(root).context("Failed to find SDK build inputs")?;
         Self::patch(&source).context("Failed to patch SDK production rules")?;
         let output = root.join("temp/sdk-build").join(&platform.target);
+        if output.exists() {
+            fs::remove_dir_all(&output).context("Failed to clear incompatible SDK build tree")?;
+        }
         fs::create_dir_all(&output).context("Failed to create SDK build directory")?;
         let executable = jam::Jam::build(root, platform).context("Failed to build Jam")?;
         let tool = platform
@@ -63,11 +82,6 @@ impl Sdk {
             ))
             .arg(format!("-sSSLLIBDIR={}", Self::path(ssl, platform)));
         Self::platform(&mut command, platform).context("Failed to configure SDK platform")?;
-        let suffix = if platform.msvc() { "lib" } else { "a" };
-        let libraries: Vec<_> = ["client", "rpc", "supp"]
-            .iter()
-            .map(|name| format!("lib{name}.{suffix}"))
-            .collect();
         command.args(&libraries);
         Runner::run(&mut command, false).context("Failed to compile Perforce SDK sources")?;
         for name in &libraries {
@@ -76,7 +90,13 @@ impl Sdk {
                 "Failed to find produced SDK library: {name}"
             );
         }
-        Ok(output)
+        if reusable {
+            cache
+                .save(&output, &names)
+                .context("Failed to save compact SDK cache")
+        } else {
+            Ok(output)
+        }
     }
 
     // Keep Windows shell paths free of slash characters interpreted as command switches.
