@@ -63,7 +63,7 @@ for event in events {
 }
 ```
 
-`-n` previews changes; remove it to apply them. `-m` retains the SDK timestamp shortcut; omit it to compare contents. SDK mappings, ignore rules, file types, and text conversions still apply. `queue_capacity()` bounds pending tasks and `queue_bytes()` bounds copied request metadata. Custom `ReconcileHandler` implementations receive owned RPC metadata and use `request.execute()` for SDK computation, optionally overriding a tracked-file decision with `reply.with_status(...)`. Summary output (`status -s`) uses the SDK's short traversal.
+`-n` previews changes; remove it to apply them. `-m` retains the SDK timestamp shortcut; omit it to compare contents. SDK mappings, ignore rules, file types, and text conversions still apply. `queue_capacity()` bounds pending tasks and `queue_bytes()` bounds copied request metadata. Custom `ReconcileHandler` implementations inspect scoped requests with owned RPC metadata and use `request.execute()` for SDK computation, optionally overriding a tracked-file decision with `reply.with_status(...)`. Summary output (`status -s`) uses the SDK's short traversal.
 
 Binding code is licensed under MIT; resource crates retain the Perforce and OpenSSL licenses.
 

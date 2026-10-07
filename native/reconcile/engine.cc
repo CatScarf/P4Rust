@@ -84,9 +84,8 @@ std::vector<p4rust_field_v2> Fields::Frame() const {
 void Fields::Reply(Client* client) const {
     for (const auto& field : values) {
         if (field.first == "func" || field.first == "data" || field.first == "kind" || field.first == "localPath") continue;
-        StrRef key, value;
-        key.Set(field.first.data(), static_cast<int>(field.first.size()));
-        value.Set(field.second.data(), static_cast<int>(field.second.size()));
+        StrRef key(field.first.data(), static_cast<int>(field.first.size()));
+        StrRef value(field.second.data(), static_cast<int>(field.second.size()));
         client->SetVar(key, value);
     }
     const auto confirm = Get("confirm");
