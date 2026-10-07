@@ -55,7 +55,9 @@
 # ifdef _M_IA64
 # define FINDTYPE long long
 # else
-# define FINDTYPE long
+// PR_004 Start
+# define FINDTYPE intptr_t
+// PR_004 End
 # endif
 
 void

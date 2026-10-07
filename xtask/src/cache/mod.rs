@@ -49,7 +49,6 @@ impl Cache {
                     "xtask/src/sdk/mod.rs",
                     "xtask/src/sdk/source.rs",
                     "xtask/src/sdk/jam.rs",
-                    "xtask/src/sdk/reconcile.rs",
                     "native/sdk_hooks.h",
                 ],
             )

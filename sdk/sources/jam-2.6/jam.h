@@ -86,6 +86,9 @@
 
 # ifdef NT
 
+// PR_004 Start
+# include <stdint.h>
+// PR_004 End
 # include <fcntl.h>
 # include <stdlib.h>
 # include <stdio.h>
@@ -100,7 +103,9 @@
 # define OSMINOR "OS=NT"
 # define OS_NT
 # define SPLITPATH ';'
-# define MAXLINE 996	/* longest execcmd() */
+// PR_004 Start
+# define MAXLINE 32760	/* longest execcmd() */
+// PR_004 End
 # define USE_EXECUNIX
 # define USE_PATHUNIX
 # define PATH_DELIM '\\'
@@ -539,7 +544,13 @@
 
 /* You probably don't need to muck with these. */
 
+// PR_004 Start
+# ifdef OS_NT
+# define MAXSYM	32768	/* longest symbol in the environment */
+# else
 # define MAXSYM	1024	/* longest symbol in the environment */
+# endif
+// PR_004 End
 # define MAXJPATH 1024	/* longest filename */
 
 # define MAXJOBS 64	/* silently enforce -j limit */

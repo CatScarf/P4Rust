@@ -52,6 +52,9 @@
 
 # include "clientservice.h"
 # include "clientaltsynchandler.h"
+// PR_001 Start
+#include "../../../../native/sdk_hooks.h"
+// PR_001 End
 
 # ifdef HAS_CPP11
 # include <thread>
@@ -370,9 +373,44 @@ SendDir( PathSys *fileName, StrPtr *cwd, StrArray *dirs, int &idx, int skip )
 	return isDir;
 }
 
+// PR_001 Start
+// Commit a worker decision into the original SDK reconcile state.
+void p4rust::NoteEdit(Client* client, const char* path, bool missing, bool store)
+{
+    Error error;
+    auto* handle = ReconcileHandle::GetOrCreate(client, true, &error);
+    if (error.Test()) { client->OutputError(&error); return; }
+    if (missing) ++handle->delCount;
+    else if (store) handle->pathArray->Put()->Set(path);
+    handle->Increment(client, 1);
+}
+
+// Preserve the SDK's owner-thread move index bookkeeping.
+bool p4rust::AlreadyMatched(Client* client, int index)
+{
+    Error error;
+    auto* handle = ReconcileHandle::GetOrCreate(client, true, &error);
+    if (error.Test()) { client->OutputError(&error); return true; }
+    return handle->AlreadyMatched(index) != 0;
+}
+
+// Commit an exact match to the original reconcile handle.
+void p4rust::NoteExact(Client* client, int index, bool matched)
+{
+    Error error;
+    auto* handle = ReconcileHandle::GetOrCreate(client, true, &error);
+    if (error.Test()) { client->OutputError(&error); return; }
+    if (matched) handle->SetMatch(index);
+    handle->Increment(client, matched ? 1 : 0);
+}
+// PR_001 End
+
 void
 clientReconcileFlush( Client *client, Error *e )
 {
+    // PR_001 Start
+    p4rust::Barrier(client);
+    // PR_001 End
 	// Delete the client's reconcile handle
 
 	ReconcileHandle *recHandle =
@@ -437,7 +475,9 @@ clientReconcileEdit( Client *client, Error *e )
 
 	if( e->Test() || !f )
 	    return;
-	int statVal = f->Stat();
+	// PR_001 Start
+	int statVal = p4rust::ActiveReconcile() ? 0 : f->Stat();
+	// PR_001 End
 
 	// Save the list of depot files. We'll diff it against the list of all
 	// files on client to find files to add in clientReconcileAdd
@@ -462,6 +502,9 @@ clientReconcileEdit( Client *client, Error *e )
 	if( e->Test() )
 	    return;
 
+	// PR_001 Start
+	if (p4rust::ScheduleEdit(client, f)) return;
+	// PR_001 End
 	if( !( statVal & ( FSF_SYMLINK|FSF_EXISTS ) ) )
 	{
 	    status = "missing";
@@ -1022,6 +1065,10 @@ clientTraverseDirs( Client *client, const char *dir, int traverse, int noIgnore,
 		    int &hasIndex, StrArray *hasList, const char *config, 
 		    ClientProgressReport* progress, Error *e )
 {
+    // PR_001 Start
+    if (p4rust::Traverse(client, dir, traverse, noIgnore, getDigests, getTypes,
+        map, files, sizes, times, digests, types, hasIndex, hasList, config, progress, e)) return;
+    // PR_001 End
 	// Return all files in dir, and optionally traverse dirs in dir,
 	// while checking each file against map before returning it
 
@@ -1250,6 +1297,9 @@ clientTraverseDirs( Client *client, const char *dir, int traverse, int noIgnore,
 void
 clientReconcileAdd( Client *client, Error *e )
 {
+    // PR_001 Start
+    p4rust::Barrier(client);
+    // PR_001 End
 	/*
 	 * Reconcile add confirm
 	 *
@@ -1455,6 +1505,9 @@ clientReconcileAdd( Client *client, Error *e )
 void
 clientExactMatch( Client *client, Error *e )
 {
+    // PR_001 Start
+    p4rust::Barrier(client);
+    // PR_001 End
 	// Compare existing digest to list of
 	// new client files, return match, or not.
 
@@ -1488,6 +1541,9 @@ clientExactMatch( Client *client, Error *e )
 	if( count )
 	    recHandle->progress->Total( count->Atoi64() );
 
+    // PR_001 Start
+    if (p4rust::ScheduleExact(client)) return;
+    // PR_001 End
 	StrPtr *matchFile = 0;
 	FileSys *f = 0;
 
@@ -1635,6 +1691,9 @@ DiffMatchFilesAsync( FileSys *f1, const Sequence *s1,
 	    *res = DiffMatchFiles( s, f2, s2 );
 	    s.Release();
 	}
+    // PR_001 Start
+    else { s2->Release(); delete f2; }
+    // PR_001 End
 	delete f1;
 }
 # endif
@@ -1692,13 +1751,18 @@ clientCloseMatch( Client *client, ClientFile *f1, Error *e )
 	const int maxThreads = 32;
 	StrPtr *strThreads = f1->matchDict->GetVar( P4Tag::v_threads );
 	int threads = strThreads ? strThreads->Atoi() : 1;
+	// PR_001 Start
+	threads = p4rust::MoveWorkers(client, threads);
+	// PR_001 End
 	if( threads > maxThreads )
 	    threads = maxThreads;
 
 	int c = 0; // thread counter for setting
 	int r = 0; // thread counter for retrieval
 	std::array< int, maxThreads > res;
-	std::vector< std::thread > ts;
+	// PR_001 Start
+	std::vector< p4rust::MatchThread > ts;
+	// PR_001 End
 	std::vector< int > indices;
 # endif
 

@@ -1,6 +1,6 @@
 # Maintainer tasks
 
-- `cargo xtask prepare`: verify and extract pinned expanded Perforce and Jam sources.
+- `cargo xtask prepare`: verify and copy maintained Perforce and Jam sources.
 - `cargo xtask build [Cargo options]`: build native dependencies and Rust.
 - `cargo xtask check`: build native dependencies and run strict workspace Clippy.
 - `cargo xtask package`: build dependencies, verify workspace packages offline, and stage the common Rust crate and selected resource crate.

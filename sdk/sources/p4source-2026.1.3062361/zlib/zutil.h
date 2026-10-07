@@ -147,7 +147,9 @@ extern z_const char * const z_errmsg[10]; /* indexed by 2-zlib_error */
 #  endif
 #endif
 
-#if defined(MACOS) || defined(TARGET_OS_MAC)
+// PR_003 Start
+#if !defined(__APPLE__) && (defined(MACOS) || defined(TARGET_OS_MAC))
+// PR_003 End
 #  define OS_CODE  7
 #  ifndef Z_SOLO
 #    if defined(__MWERKS__) && __dest_os != __be_os && __dest_os != __win32_os

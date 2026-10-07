@@ -16,6 +16,9 @@
 # include <stdhdrs.h>
 
 # include <error.h>
+// PR_001 Start
+#include "../../../../native/sdk_hooks.h"
+// PR_001 End
 # include <errornum.h>
 # include <errorlog.h>
 # include <strbuf.h>
@@ -3513,6 +3516,12 @@ FileIOBinary::Write( const char *buf, int len, Error *e )
 int
 FileIOBinary::Read( char *buf, int len, Error *e )
 {
+    // PR_001 Start
+    if (!p4rust::WorkerAlive()) {
+        e->Set(E_FAILED, "Local reconcile computation interrupted.");
+        return 0;
+    }
+    // PR_001 End
 	if( delegate )
 	    return delegate->Read( buf, len, e );
 

@@ -1864,7 +1864,9 @@
 		    C++FLAGS += /FC ;
 		}
 
-		local _Z = /Zi ; # flag to put debug syms in .pdb file
+		# // PR_002 Start
+		local _Z = ;
+		# // PR_002 End
 
 		# Visual Studio 8 and earlier choke when writing .pdb files
 		# to a networked drive; this variable provides a way to

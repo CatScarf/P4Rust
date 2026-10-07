@@ -49,6 +49,9 @@
 
 # include <rpcdebug.h>
 # include <msgrpc.h>
+// PR_001 Start
+#include "../../../../native/sdk_hooks.h"
+// PR_001 End
 # include <p4tags.h>
 
 # ifdef USE_SSL
@@ -1071,6 +1074,11 @@ Rpc::Dispatch( DispatchFlag flag, RpcDispatcher *dispatcher )
 		if( !recvBuffer )
 		    recvBuffer = new RpcRecvBuffer;
 
+		// PR_001 Start
+		p4rust::Pump(this, false);
+		while (p4rust::Pending(this) && transport && !transport->RecvReady())
+		    p4rust::Pump(this, true);
+		// PR_001 End
 		DispatchOne( dispatcher, flag == DfContain );
 
 	        // pack and potentially resize buffer

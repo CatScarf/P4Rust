@@ -8,7 +8,7 @@ use std::{
 pub(super) struct Sources;
 
 impl Sources {
-    // Read checksums and reconstruction metadata for the expanded vendor sources.
+    // Read checksums and reconstruction metadata for the maintained SDK sources.
     fn inventory(root: &Path) -> Result<serde_json::Value> {
         serde_json::from_slice(
             &fs::read(root.join("sdk/sources.json"))
@@ -40,7 +40,7 @@ impl Sources {
         Ok(())
     }
 
-    // Verify vendor bytes before copying them into an isolated build tree.
+    // Verify maintained source bytes before copying them into an isolated build tree.
     pub(super) fn prepare(root: &Path) -> Result<()> {
         let inventory = Self::inventory(root).context("Failed to read SDK sources")?;
         for name in ["perforce", "jam"] {

@@ -1,5 +1,4 @@
 mod jam;
-mod reconcile;
 mod source;
 
 use crate::{
@@ -45,7 +44,6 @@ impl Sdk {
             return Ok(path);
         }
         let source = Self::source(root).context("Failed to find SDK build inputs")?;
-        Self::patch(root, &source).context("Failed to patch SDK production rules")?;
         let output = root.join("temp/sdk-build").join(&platform.target);
         if output.exists() {
             fs::remove_dir_all(&output).context("Failed to clear incompatible SDK build tree")?;
@@ -108,31 +106,6 @@ impl Sdk {
         } else {
             text.into_owned()
         }
-    }
-
-    // Apply marked compatibility fixes only to the ignored build copy.
-    fn patch(root: &Path, source: &Path) -> Result<()> {
-        let rules = source.join("Jamrules");
-        let text = fs::read_to_string(&rules).context("Failed to read SDK production rules")?;
-        fs::write(
-            rules,
-            text.replace(
-                "local _Z = /Zi ;",
-                "# // PR_002 Start\nlocal _Z = ;\n# // PR_002 End",
-            ),
-        )
-        .context("Failed to configure SDK debug policy")?;
-        let header = source.join("zlib/zutil.h");
-        let text = fs::read_to_string(&header).context("Failed to read vendor zlib header")?;
-        fs::write(
-            header,
-            text.replace(
-                "#if defined(MACOS) || defined(TARGET_OS_MAC)",
-                "// PR_003 Start\n#if !defined(__APPLE__) && (defined(MACOS) || defined(TARGET_OS_MAC))\n// PR_003 End",
-            ),
-        )
-        .context("Failed to correct vendor Apple fdopen detection")?;
-        reconcile::Hooks::install(root, source).context("Failed to install SDK reconcile hooks")
     }
 
     // Select native compiler settings and a valid Apple SDK explicitly.

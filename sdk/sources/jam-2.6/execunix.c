@@ -44,6 +44,13 @@
 # include "execcmd.h"
 # include <errno.h>
 
+// PR_004 Start
+# ifdef OS_NT
+typedef intptr_t JAM_PID;
+# else
+typedef int JAM_PID;
+# endif
+// PR_004 End
 # ifdef USE_EXECUNIX
 
 # ifdef OS_OS2
@@ -63,7 +70,9 @@
 # define USE_MYWAIT
 # if !defined( __BORLANDC__ ) 
 # define wait my_wait
-static int my_wait( int *status );
+// PR_004 Start
+static JAM_PID my_wait( int *status );
+// PR_004 End
 # endif
 # endif
 
@@ -73,7 +82,9 @@ static void (*istat)( int );
 
 static struct
 {
-	int	pid; /* on win32, a real process handle */
+	// PR_004 Start
+	JAM_PID	pid; /* on win32, a real process handle */
+	// PR_004 End
 	void	(*func)( void *closure, int status );
 	void 	*closure;
 
@@ -161,7 +172,9 @@ execcmd(
 	void *closure,
 	LIST *shell )
 {
-	int pid;
+	// PR_004 Start
+	JAM_PID pid;
+	// PR_004 End
 	int slot;
 	const char *argv[ MAXARGC + 1 ];	/* +1 for NULL */
 
@@ -321,7 +334,10 @@ int
 execwait()
 {
 	int i;
-	int status, w;
+	// PR_004 Start
+	int status;
+	JAM_PID w;
+	// PR_004 End
 	int rstat;
 
 	/* Handle naive make1() which doesn't know if cmds are running. */
@@ -380,7 +396,9 @@ execwait()
 
 # ifdef USE_MYWAIT
 
-static int
+// PR_004 Start
+static JAM_PID
+// PR_004 End
 my_wait( int *status )
 {
 	int i, num_active = 0;
@@ -427,7 +445,9 @@ my_wait( int *status )
 	    if ( GetExitCodeProcess(active_handles[i], &exitcode) ) {
 		CloseHandle(active_handles[i]);
 		*status = (int)((exitcode & 0xff) << 8);
-		return (int)active_handles[i];
+		// PR_004 Start
+		return (JAM_PID)active_handles[i];
+		// PR_004 End
 	    }
 	}
 
