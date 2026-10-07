@@ -142,6 +142,8 @@ impl Prune {
                     "-framework",
                     "CoreFoundation",
                     "-framework",
+                    "CoreGraphics",
+                    "-framework",
                     "Security",
                     "-framework",
                     "Foundation",
@@ -199,11 +201,16 @@ impl Prune {
 
     // Extract member names from linker maps and Apple's archive-load diagnostics.
     fn members(trace: &str, archive: &str) -> HashSet<String> {
-        let prefix = format!("{archive}(");
         trace
             .lines()
             .filter_map(|line| {
-                let (_, member) = line.split_once(&prefix)?;
+                let (_, suffix) = line.split_once(archive)?;
+                let suffix = if suffix.starts_with('[') {
+                    suffix.split_once(']')?.1
+                } else {
+                    suffix
+                };
+                let member = suffix.strip_prefix('(')?;
                 let (member, _) = member.split_once(')')?;
                 Some(Self::basename(member).to_owned())
             })
@@ -217,7 +224,7 @@ mod tests {
     // Keep separate archive closures and normalize loaded object paths.
     #[test]
     fn parses_linker_member_traces() {
-        let trace = "/sdk/libclient.a(build/clientapi.o)\n /sdk/libclient.a(clientuser.o) loaded because of ABI\n /sdk/libother.a(ignored.o)";
+        let trace = "/sdk/libclient.a(build/clientapi.o)\n /sdk/libclient.a[12](clientuser.o) loaded because of ABI\n /sdk/libother.a(ignored.o)";
         let members = Prune::members(trace, "libclient.a");
         assert_eq!(members.len(), 2);
         assert!(members.contains("clientapi.o"));

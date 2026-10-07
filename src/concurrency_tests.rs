@@ -50,7 +50,7 @@ impl Fixture {
         }
     }
 
-    // Confirm the native KeepAlive hook closes the blocked command's socket.
+    // Release Unix initialization stalls and confirm the owned native session closes its socket.
     fn closed(mut stream: net::TcpStream) -> api::Result<()> {
         use io::Read;
         stream
@@ -59,6 +59,12 @@ impl Fixture {
         stream
             .set_read_timeout(Some(time::Duration::from_secs(3)))
             .context("Failed to bound native cleanup wait")?;
+        if cfg!(unix) {
+            // Unix SDK initialization waits for a server handshake before SetBreak is available.
+            stream
+                .shutdown(net::Shutdown::Write)
+                .context("Failed to release stalled fixture handshake")?;
+        }
         let mut buffer = [0; 4096];
         loop {
             match stream.read(&mut buffer) {

@@ -80,7 +80,7 @@ impl Link {
             }
         } else if target.ends_with("apple-darwin") {
             println!("cargo:rustc-link-lib=c++");
-            for framework in ["CoreFoundation", "Security", "Foundation"] {
+            for framework in ["CoreFoundation", "CoreGraphics", "Security", "Foundation"] {
                 println!("cargo:rustc-link-lib=framework={framework}");
             }
         } else {
