@@ -28,6 +28,8 @@ SDK callbacks remain distinct: `Text`, `Info`, `Binary`, `Record`, `RecordPartia
 
 Clients and callbacks are coordinated internally. The queue holds at most 64 events with cancellable backpressure. Callback payloads and tagged records are limited to 1 MiB; progress descriptions to 16 KiB. Text events preserve original bytes and callback boundaries; `collect_output()` decodes the concatenated stream, handling split UTF-8 characters and retaining non-UTF-8 bytes. Dropping a stream cancels its command without cancelling other commands sharing the external token.
 
+Each tagged callback crosses FFI once. `Record` keeps one byte buffer; `raw_fields()` borrows original fields, while `fields()` and `get()` borrow valid UTF-8 through `Cow<str>`. `collect_output()` moves these records into `Output.records` without decoding them again. Callback state is unlocked before queue waits; ordering tickets preserve delivery order, and consuming an event immediately wakes blocked producers.
+
 Timeouts cover setup, output delivery, and execution; errors retain `TimedOut` or `Interrupted` causes. SDK operations that cannot poll finish cleanup in the owned worker. Commands cancelled during setup are never dispatched.
 
 Windows requires the shared MSVC runtime; `crt-static` is unsupported. Version 0.1.0 has not been published to crates.io.

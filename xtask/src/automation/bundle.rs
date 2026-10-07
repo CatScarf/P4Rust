@@ -74,8 +74,8 @@ impl Bundle {
                 .lines()
                 .filter(|name| name.starts_with(&prefix) && name.ends_with(suffix))
                 .count()
-                == 7,
-            "Failed to verify seven native libraries for {target}"
+                == 6,
+            "Failed to verify six native libraries for {target}"
         );
         Ok(())
     }

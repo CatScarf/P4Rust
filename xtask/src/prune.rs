@@ -54,7 +54,7 @@ impl Prune {
             }
             let required = Self::members(&trace, name);
             ensure!(
-                !required.is_empty() || name == "libp4script_cstub.a",
+                !required.is_empty(),
                 "Failed to trace archive members: {name}"
             );
             let entries = Self::command(Command::new(&ar).arg("t").arg(path))
@@ -83,7 +83,6 @@ impl Prune {
         let names = [
             "p4rust_bridge",
             "libclient",
-            "libp4script_cstub",
             "librpc",
             "libsupp",
             "libssl",
@@ -105,7 +104,7 @@ impl Prune {
             Self::coff_probe(staging, &tool).context("Failed to trace COFF dependencies")?;
         fs::write(staging.join("dependency-trace.txt"), &trace)
             .context("Failed to preserve COFF trace")?;
-        for name in ["libclient", "libp4script_cstub", "librpc", "libsupp"] {
+        for name in ["libclient", "librpc", "libsupp"] {
             Self::coff_compact(staging, name, &trace, &tool)
                 .context("Failed to compact COFF library")?;
         }
@@ -137,7 +136,6 @@ impl Prune {
         for name in [
             "p4rust_bridge",
             "libclient",
-            "libp4script_cstub",
             "librpc",
             "libsupp",
             "libssl",
@@ -164,7 +162,7 @@ impl Prune {
         let output = staging.join(format!("{name}-pruned.lib"));
         let required = Self::members(trace, &format!("{name}.lib"));
         ensure!(
-            !required.is_empty() || name == "libp4script_cstub",
+            !required.is_empty(),
             "Failed to find reachable COFF members: {name}"
         );
         let entries = Self::command(

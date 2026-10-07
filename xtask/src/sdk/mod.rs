@@ -25,7 +25,7 @@ impl Sdk {
         source::Sources::directory(root, "perforce").context("Failed to locate Perforce sources")
     }
 
-    // Build the four static API libraries using the vendor's dependency rules.
+    // Build the three required static API libraries using the vendor's dependency rules.
     pub(crate) fn build(root: &Path, ssl: &Path, platform: &Platform) -> Result<PathBuf> {
         let source = Self::source(root).context("Failed to find SDK build inputs")?;
         Self::patch(&source).context("Failed to patch SDK production rules")?;
@@ -64,7 +64,7 @@ impl Sdk {
             .arg(format!("-sSSLLIBDIR={}", Self::path(ssl, platform)));
         Self::platform(&mut command, platform).context("Failed to configure SDK platform")?;
         let suffix = if platform.msvc() { "lib" } else { "a" };
-        let libraries: Vec<_> = ["client", "p4script_cstub", "rpc", "supp"]
+        let libraries: Vec<_> = ["client", "rpc", "supp"]
             .iter()
             .map(|name| format!("lib{name}.{suffix}"))
             .collect();

@@ -1,4 +1,4 @@
-//! Raw ABI v1 bindings; callers own every buffer and must uphold C pointer validity.
+//! Raw bridge protocol v2; callers own buffers and must uphold C pointer validity.
 
 use std::ffi::{c_char, c_void};
 
@@ -19,9 +19,7 @@ pub const ABI_VERSION: u32 = resources::ABI_VERSION;
 pub const TEXT: u32 = 1;
 pub const BINARY: u32 = 2;
 pub const RECORD: u32 = 3;
-pub const FIELD: u32 = 4;
 pub const ERROR: u32 = 6;
-pub const RECORD_END: u32 = 7;
 pub const PROGRESS: u32 = 8;
 pub const INFO: u32 = 9;
 pub const RECORD_PARTIAL: u32 = 10;
@@ -34,6 +32,14 @@ pub const STATUS: u32 = 15;
 pub type Callback =
     unsafe extern "C" fn(*mut c_void, u32, *const u8, usize, *const u8, usize) -> i32;
 pub type Alive = unsafe extern "C" fn(*mut c_void) -> i32;
+
+#[repr(C)]
+pub(crate) struct Field {
+    pub key: *const u8,
+    pub key_length: usize,
+    pub value: *const u8,
+    pub value_length: usize,
+}
 
 #[repr(C)]
 pub struct Options {

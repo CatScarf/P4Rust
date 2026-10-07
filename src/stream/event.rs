@@ -1,11 +1,4 @@
-use crate::CommandStatus;
-
-/// One SDK tagged callback with ordered display fields and original bytes.
-#[derive(Debug)]
-pub struct Record {
-    pub fields: Vec<(String, String)>,
-    pub raw: Vec<(Vec<u8>, Vec<u8>)>,
-}
+use crate::{CommandStatus, Record};
 
 /// One native message identifier and its untranslated format bytes.
 #[derive(Debug)]

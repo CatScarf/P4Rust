@@ -44,15 +44,7 @@ impl Link {
     // Emit archive and system-library metadata without launching native tools.
     fn libraries(target: &str) {
         let msvc = target.ends_with("windows-msvc");
-        for library in [
-            "p4rust_bridge",
-            "client",
-            "p4script_cstub",
-            "rpc",
-            "supp",
-            "ssl",
-            "crypto",
-        ] {
+        for library in ["p4rust_bridge", "client", "rpc", "supp", "ssl", "crypto"] {
             let name = if msvc && library != "p4rust_bridge" {
                 format!("lib{library}")
             } else {

@@ -10,11 +10,18 @@ extern "C" {
 
 enum p4rust_event_v1 {
     P4RUST_TEXT = 1, P4RUST_BINARY = 2, P4RUST_RECORD = 3,
-    P4RUST_FIELD = 4, P4RUST_ERROR = 6, P4RUST_RECORD_END = 7, P4RUST_PROGRESS = 8,
+    P4RUST_ERROR = 6, P4RUST_PROGRESS = 8,
     P4RUST_INFO = 9, P4RUST_RECORD_PARTIAL = 10, P4RUST_MESSAGE = 11,
     P4RUST_HANDLE_ERROR = 12, P4RUST_OUTPUT_ERROR = 13, P4RUST_FINISHED = 14,
     P4RUST_STATUS = 15
 };
+
+typedef struct p4rust_field_v2 {
+    const uint8_t* key;
+    size_t key_length;
+    const uint8_t* value;
+    size_t value_length;
+} p4rust_field_v2;
 
 typedef int32_t (*p4rust_callback_v1)(void*, uint32_t,
     const uint8_t*, size_t, const uint8_t*, size_t);

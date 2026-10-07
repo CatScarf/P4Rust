@@ -22,9 +22,17 @@ impl Release {
         let destination = package.join("native");
         fs::create_dir_all(&staging).context("Failed to create release staging directory")?;
         fs::create_dir_all(&destination).context("Failed to create release library directory")?;
+        let stale = destination.join(if platform.msvc() {
+            "libp4script_cstub.lib"
+        } else {
+            "libp4script_cstub.a"
+        });
+        if stale.is_file() {
+            fs::remove_file(stale).context("Failed to remove obsolete scripting stub archive")?;
+        }
         let mut paths = vec![bridge.to_path_buf()];
         paths.extend(platform.ssl_names().iter().map(|name| ssl.join(name)));
-        for name in ["client", "p4script_cstub", "rpc", "supp"] {
+        for name in ["client", "rpc", "supp"] {
             let filename = if platform.msvc() {
                 format!("lib{name}.lib")
             } else {

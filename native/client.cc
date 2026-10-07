@@ -95,14 +95,12 @@ public:
     void* context;
     std::string input;
     Interrupt* interrupt = nullptr;
-    std::recursive_mutex mutex;
     std::atomic<int64_t> next_progress{0};
     std::atomic<bool> command_failed{false};
 
     // Copy event bytes to the caller without sharing allocator ownership.
     void Emit(uint32_t event, const char* data = nullptr, size_t length = 0,
               const char* value = nullptr, size_t value_length = 0) {
-        std::lock_guard<std::recursive_mutex> lock(mutex);
         if (interrupt && !interrupt->IsAlive()) return;
         if (callback(context, event, reinterpret_cast<const uint8_t*>(data), length,
                      reinterpret_cast<const uint8_t*>(value), value_length) != 0)
@@ -146,14 +144,27 @@ public:
         return 0;
     }
 
-    // Copy an atomic tagged callback with its original field order.
+    // Borrow an entire tagged dictionary through one bounded descriptor callback.
     void Record(StrDict* dictionary, uint32_t event) {
-        std::lock_guard<std::recursive_mutex> lock(mutex);
-        Emit(event);
+        std::vector<p4rust_field_v2> fields;
+        const int count = dictionary->GetCount();
+        if (count >= 0 && count <= 16384) fields.reserve(static_cast<size_t>(count));
+        size_t bytes = 0;
         StrRef key, value;
-        for (int index = 0; dictionary->GetVar(index, key, value); ++index)
-            Emit(P4RUST_FIELD, key.Text(), key.Length(), value.Text(), value.Length());
-        Emit(P4RUST_RECORD_END);
+        for (int index = 0; dictionary->GetVar(index, key, value); ++index) {
+            const size_t key_length = key.Length(), value_length = value.Length();
+            if (fields.size() == 16384 || key_length > 1048576 - bytes ||
+                value_length > 1048576 - bytes - key_length) {
+                const char* message = "Failed to bound tagged record: exceeds callback limits";
+                Emit(P4RUST_ERROR, message, std::strlen(message));
+                return;
+            }
+            bytes += key_length + value_length;
+            fields.push_back({reinterpret_cast<const uint8_t*>(key.Text()), key_length,
+                              reinterpret_cast<const uint8_t*>(value.Text()), value_length});
+        }
+        Emit(event, reinterpret_cast<const char*>(fields.data()),
+             fields.size() * sizeof(p4rust_field_v2));
     }
 
     // Enable SDK progress notifications for ordinary and parallel transfers.
@@ -177,7 +188,6 @@ public:
 
     // Serialize every SDK error identifier, format, and parameter without losing metadata.
     void ErrorEvent(Error* error, uint32_t event) {
-        std::lock_guard<std::recursive_mutex> lock(mutex);
         StrBuf message;
         error->Fmt(&message);
         StrBuf serialized;
@@ -337,7 +347,7 @@ int32_t execute(const p4rust_options_v1& options, const char* command, int32_t a
 }
 
 // Return the ABI contract implemented by this precompiled bridge.
-extern "C" uint32_t p4rust_abi_version(void) { return 1; }
+extern "C" uint32_t p4rust_abi_version(void) { return 2; }
 
 // Contain all C++ exceptions before returning across the C ABI boundary.
 extern "C" int32_t p4rust_execute_v1(const p4rust_options_v1* options,
@@ -353,10 +363,10 @@ extern "C" int32_t p4rust_execute_controlled_v1(const p4rust_options_v1* options
     p4rust_callback_v1 callback, void* context, p4rust_alive_v1 alive, void* control) {
     if (!callback) return 1;
     try {
-        if (!options || options->abi_version != 1 || !command || argc < 0 ||
+        if (!options || options->abi_version != 2 || !command || argc < 0 ||
             (argc && !argv) || !options->port || !options->user || !options->client ||
             !options->cwd || !options->charset || !options->input || (alive && !control))
-            throw std::runtime_error("Failed to validate ABI v1 arguments");
+            throw std::runtime_error("Failed to validate bridge arguments");
         for (int32_t index = 0; index < argc; ++index)
             if (!argv[index]) throw std::runtime_error("Failed to validate native argument");
         return p4rust::execute(*options, command, argc, argv, callback, context, alive, control);

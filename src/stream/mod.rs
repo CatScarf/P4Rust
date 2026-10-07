@@ -1,14 +1,18 @@
 use crate::{Command, CommandStatus, Output, Result, ResultExt};
 use crate::{capture::Capture, control::Control, native::Native};
-use std::{sync::mpsc, thread, time::Duration};
+use std::{sync::Arc, thread};
 mod event;
+pub(crate) mod queue;
+mod record;
 pub use event::{Event, Message, MessageId};
-pub use event::{Progress, ProgressCallback, Record};
+pub use event::{Progress, ProgressCallback};
+use queue::Queue;
+pub use record::Record;
 
 /// A bounded event iterator that requests cancellation when dropped.
 #[must_use]
 pub struct CommandStream {
-    receiver: mpsc::Receiver<Result<Event>>,
+    queue: Arc<Queue>,
     control: Control,
     worker: Option<thread::JoinHandle<()>>,
     finished: bool,
@@ -17,12 +21,13 @@ pub struct CommandStream {
 impl CommandStream {
     // Start an owned worker so blocked SDK cleanup cannot outlive borrowed caller data.
     pub(crate) fn start(command: Command, control: Control) -> Result<Self> {
-        let (sender, receiver) = mpsc::sync_channel(64);
+        let queue = Arc::new(Queue::new());
+        let worker_queue = Arc::clone(&queue);
         let worker_control = control.clone();
         let worker = thread::Builder::new()
             .name("p4rust-command".into())
             .spawn(move || {
-                let capture = Capture::new(sender, worker_control.clone());
+                let capture = Capture::new(worker_queue, worker_control.clone());
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let args: Vec<&str> = command.arguments.iter().map(String::as_str).collect();
                     Native::execute(
@@ -49,7 +54,7 @@ impl CommandStream {
             })
             .context("Failed to spawn P4 stream worker")?;
         Ok(Self {
-            receiver,
+            queue,
             control,
             worker: Some(worker),
             finished: false,
@@ -69,7 +74,7 @@ impl CommandStream {
                     output.info.push((level, raw));
                 }
                 Event::Binary(bytes) => output.binary.extend(bytes),
-                Event::Record(record) => output.raw.records.push(record.raw),
+                Event::Record(record) => output.records.push(record),
                 Event::RecordPartial(record) => output.partial_records.push(record),
                 Event::Message(message) | Event::HandleError(message) => {
                     if message.severity == 2 {
@@ -117,32 +122,31 @@ impl Iterator for CommandStream {
         if self.finished {
             return None;
         }
-        loop {
-            if let Some(error) = self.control.error() {
+        match self.queue.pop(&self.control) {
+            Ok(Some(event)) => {
+                if event.is_err()
+                    || matches!(
+                        event,
+                        Ok(Event::Completed(CommandStatus { success: true, .. }))
+                    )
+                {
+                    self.finished = true;
+                    if let Err(error) = self.join() {
+                        return Some(Err(error));
+                    }
+                }
+                Some(event)
+            }
+            Ok(None) => {
+                self.finished = true;
+                Some(Err(crate::Error::new(
+                    "Failed to receive P4 event: missing completion",
+                )))
+            }
+            Err(error) => {
                 self.control.cancel();
                 self.finished = true;
-                return Some(Err(error).context("Failed to wait for P4 command event"));
-            }
-            match self.receiver.recv_timeout(Duration::from_millis(10)) {
-                Ok(event) => {
-                    if event.is_err()
-                        || matches!(
-                            event,
-                            Ok(Event::Completed(CommandStatus { success: true, .. }))
-                        )
-                    {
-                        self.finished = true;
-                        if let Err(error) = self.join() {
-                            return Some(Err(error));
-                        }
-                    }
-                    return Some(event);
-                }
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
-                Err(error) => {
-                    self.finished = true;
-                    return Some(Err(error).context("Failed to receive P4 command event"));
-                }
+                Some(Err(error).context("Failed to receive P4 command event"))
             }
         }
     }
@@ -152,6 +156,9 @@ impl Drop for CommandStream {
     // Request cancellation and let the owned worker finish any uninterruptible cleanup.
     fn drop(&mut self) {
         self.control.cancel();
+        if let Err(error) = self.queue.close(true) {
+            eprintln!("Failed to discard P4 event stream: {error}");
+        }
         if self
             .worker
             .as_ref()
