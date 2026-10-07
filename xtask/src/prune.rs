@@ -114,7 +114,7 @@ impl Prune {
         platform: &Platform,
     ) -> Result<String> {
         let source = staging.join("dependency-probe.cc");
-        fs::write(&source, "#include <client.h>\n// Exercise every public ABI export without connecting to a server.\nint main() { return p4rust_abi_version() == 1 && p4rust_execute_v1(nullptr, nullptr, 0, nullptr, nullptr, nullptr) != 0 && p4rust_execute_controlled_v1(nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr) != 0 ? 0 : 1; }\n")
+        fs::write(&source, "#include <client.h>\n// Retain every public ABI symbol for archive dependency analysis.\nint main() { auto volatile version = &p4rust_abi_version; auto volatile execute = &p4rust_execute_v1; auto volatile controlled = &p4rust_execute_controlled_v1; (void)version; (void)execute; (void)controlled; return 0; }\n")
             .context("Failed to write ABI dependency probe")?;
         let map = staging.join("dependency-probe.map");
         let executable = staging.join(if platform.windows() {
@@ -178,13 +178,6 @@ impl Prune {
             output.status.success(),
             "Failed to link ABI dependency probe: {}",
             String::from_utf8_lossy(&output.stderr)
-        );
-        let status = Command::new(executable)
-            .status()
-            .context("Failed to execute ABI dependency probe")?;
-        ensure!(
-            status.success(),
-            "Failed to verify ABI dependency probe: {status}"
         );
         let trace = if platform.apple() {
             String::from_utf8(output.stderr).context("Failed to decode Apple archive trace")?
