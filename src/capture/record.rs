@@ -3,7 +3,7 @@ use crate::{Record, Result, ResultExt, error::ensure, ffi};
 
 impl Record {
     // Copy a borrowed SDK dictionary into one byte buffer and one field-offset vector.
-    pub(super) unsafe fn copy(frame: &[u8]) -> Result<Self> {
+    pub(crate) unsafe fn copy(frame: &[u8]) -> Result<Self> {
         let size = std::mem::size_of::<ffi::Field>();
         ensure!(
             frame.len().is_multiple_of(size) && frame.len() / size <= 16_384,

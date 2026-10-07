@@ -1,5 +1,6 @@
 use crate::{CancellationToken, Config, Result, ResultExt};
 use crate::{control::Control, error::ensure, stream::CommandStream};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Owned configuration for one background Perforce command.
@@ -11,6 +12,7 @@ pub struct Command {
     pub(crate) form: String,
     timeout: Option<Duration>,
     cancellation: Option<CancellationToken>,
+    pub(crate) reconcile: Option<Arc<dyn crate::ReconcileHandler>>,
 }
 
 impl Command {
@@ -23,6 +25,7 @@ impl Command {
             form: String::new(),
             timeout: None,
             cancellation: None,
+            reconcile: None,
         }
     }
 
@@ -50,6 +53,12 @@ impl Command {
         self
     }
 
+    /// Delegate local reconcile requests to an owned parallel Rust handler.
+    pub fn reconcile_handler(mut self, handler: impl crate::ReconcileHandler + 'static) -> Self {
+        self.reconcile = Some(Arc::new(handler));
+        self
+    }
+
     /// Start background execution and return a bounded stream of command events.
     pub fn run(self) -> Result<CommandStream> {
         self.validate()
@@ -61,6 +70,11 @@ impl Command {
 
     // Validate owned command data before starting the native worker.
     fn validate(&self) -> Result<()> {
+        ensure!(
+            self.reconcile.is_none()
+                || matches!(self.name.as_str(), "reconcile" | "rec" | "status"),
+            "Failed to configure reconcile handler: unsupported command"
+        );
         ensure!(
             !self.name.is_empty() && !self.name.contains('\0'),
             "Failed to validate command name"

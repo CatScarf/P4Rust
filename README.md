@@ -45,6 +45,26 @@ fn main() -> Result<()> {
 
 `run()` returns `CommandStream`, an `Iterator<Item = Result<Event>>`. Add `.input(form)`, `.timeout(duration)`, or `.cancellation(&token)` before `run()` as needed. Use `collect_output()` to gather the stream into one `Output`.
 
+Use `FastReconcile` to schedule SDK directory scans, canonical file comparisons, and move matching in separate Rust worker pools:
+
+```rust
+let events = client
+    .command("reconcile")
+    .args(["-n", "-m", "D:/workspace/..."])
+    .reconcile_handler(p4rust::FastReconcile::new()
+        .metadata_workers(8)
+        .digest_workers(4)
+        .move_workers(4))
+    .run()
+    .context("Failed to start reconcile")?;
+
+for event in events {
+    println!("{:#?}", event.context("Failed to reconcile")?);
+}
+```
+
+`-n` previews changes; remove it to apply them. `-m` retains the SDK timestamp shortcut; omit it to compare contents. SDK mappings, ignore rules, file types, and text conversions still apply. `queue_capacity()` bounds pending tasks and `queue_bytes()` bounds copied request metadata. Custom `ReconcileHandler` implementations receive owned RPC metadata and use `request.execute()` for SDK computation, optionally overriding a tracked-file decision with `reply.with_status(...)`. Summary output (`status -s`) uses the SDK's short traversal.
+
 Binding code is licensed under MIT; resource crates retain the Perforce and OpenSSL licenses.
 
 ## Maintainers

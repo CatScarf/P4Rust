@@ -20,6 +20,7 @@ impl Native {
         input: &str,
         control: &Control,
         capture: &Capture,
+        reconcile: Option<&std::sync::Arc<dyn crate::ReconcileHandler>>,
     ) -> Result<crate::CommandStatus> {
         // This version query has no pointer arguments or runtime side effects.
         ensure!(
@@ -40,8 +41,32 @@ impl Native {
         .context("Failed to encode native connection settings")?;
         let options = Self::options(&values);
         let command = Self::string(command).context("Failed to encode native command")?;
-        Self::invoke(&options, &command, args, control, capture)
-            .context("Failed to invoke native command")
+        let runtime = reconcile
+            .map(|handler| {
+                crate::reconcile::runtime::Runtime::new(
+                    std::sync::Arc::clone(handler),
+                    control.clone(),
+                )
+            })
+            .transpose()
+            .context("Failed to initialize reconcile scheduler")?;
+        let moves = reconcile
+            .map(|handler| handler.workers(crate::ReconcileKind::Move))
+            .unwrap_or(1) as u32;
+        let result = Self::invoke(
+            &options,
+            &command,
+            args,
+            control,
+            capture,
+            runtime.as_ref().map(|runtime| (runtime, moves)),
+        );
+        if let Some(runtime) = &runtime {
+            runtime
+                .finish()
+                .context("Failed to finish reconcile scheduler")?;
+        }
+        result.context("Failed to invoke native command")
     }
 
     // Build borrowed options from the six encoded connection fields.
@@ -64,6 +89,7 @@ impl Native {
         args: &[&str],
         control: &Control,
         capture: &Capture,
+        reconcile: Option<(&crate::reconcile::runtime::Runtime, u32)>,
     ) -> Result<crate::CommandStatus> {
         let strings: Vec<CString> = args
             .iter()
@@ -74,16 +100,32 @@ impl Native {
         let count = i32::try_from(pointers.len()).context("Failed to encode argument count")?;
         // The owned worker outlives the synchronous native call and every parallel callback.
         let status = unsafe {
-            ffi::p4rust_execute_controlled_v1(
-                options,
-                command.as_ptr(),
-                count,
-                pointers.as_ptr(),
-                Capture::callback,
-                std::ptr::from_ref(capture).cast_mut().cast::<c_void>(),
-                Some(Control::alive as ffi::Alive),
-                std::ptr::from_ref(control).cast_mut().cast::<c_void>(),
-            )
+            if let Some((runtime, moves)) = reconcile {
+                ffi::p4rust_execute_reconcile_v3(
+                    options,
+                    command.as_ptr(),
+                    count,
+                    pointers.as_ptr(),
+                    Capture::callback,
+                    std::ptr::from_ref(capture).cast_mut().cast::<c_void>(),
+                    Some(Control::alive as ffi::Alive),
+                    std::ptr::from_ref(control).cast_mut().cast::<c_void>(),
+                    crate::reconcile::runtime::Runtime::callback,
+                    std::ptr::from_ref(runtime).cast_mut().cast::<c_void>(),
+                    moves,
+                )
+            } else {
+                ffi::p4rust_execute_controlled_v1(
+                    options,
+                    command.as_ptr(),
+                    count,
+                    pointers.as_ptr(),
+                    Capture::callback,
+                    std::ptr::from_ref(capture).cast_mut().cast::<c_void>(),
+                    Some(Control::alive as ffi::Alive),
+                    std::ptr::from_ref(control).cast_mut().cast::<c_void>(),
+                )
+            }
         };
         capture
             .finish(status)

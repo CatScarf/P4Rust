@@ -7,6 +7,7 @@ mod error;
 mod ffi;
 mod native;
 mod output;
+mod reconcile;
 mod stream;
 
 pub use command::Command;
@@ -14,6 +15,8 @@ pub use control::CancellationToken;
 use error::ensure;
 pub use error::{CommandStatus, Error, Result, ResultExt};
 pub use output::{Output, RawOutput};
+pub use reconcile::{FastReconcile, ReconcileHandler, ReconcileKind};
+pub use reconcile::{ReconcileReply, ReconcileRequest, ReconcileStatus};
 pub use stream::{CommandStream, Event, Progress, Record};
 pub use stream::{Message, MessageId, ProgressCallback};
 pub use stream::{ProgressKind, ProgressUnit};

@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include "reconcile/engine.h"
 
 namespace p4rust {
 class Runtime {
@@ -314,7 +315,8 @@ public:
 // Execute a command while keeping argument storage alive through Run.
 int32_t execute(const p4rust_options_v1& options, const char* command, int32_t argc,
              const char* const* args, p4rust_callback_v1 callback, void* context,
-             p4rust_alive_v1 alive, void* control) {
+             p4rust_alive_v1 alive, void* control, p4rust_reconcile_v3 reconcile,
+             void* scheduler, uint32_t moves) {
     static Runtime runtime;
     ThreadScope thread;
     Interrupt interrupt;
@@ -328,6 +330,7 @@ int32_t execute(const p4rust_options_v1& options, const char* command, int32_t a
     user.context = context;
     user.input = options.input;
     user.interrupt = alive ? &interrupt : nullptr;
+    ReconcileScope scheduling(user, reconcile, scheduler, moves);
     session.Open(user);
     // The SDK requires SetBreak after a successful Init.
     if (alive) session.client.SetBreak(&interrupt);
@@ -340,6 +343,8 @@ int32_t execute(const p4rust_options_v1& options, const char* command, int32_t a
     session.client.SetArgv(static_cast<int>(pointers.size()), pointers.data());
     interrupt.Check();
     session.client.Run(command, &user);
+    if (reconcile) scheduling.Call(4);
+    scheduling.Close();
     const int32_t errors = session.client.GetErrors();
     user.Emit(P4RUST_STATUS, reinterpret_cast<const char*>(&errors), sizeof(errors));
     session.Close(user);
@@ -348,7 +353,7 @@ int32_t execute(const p4rust_options_v1& options, const char* command, int32_t a
 }
 
 // Return the ABI contract implemented by this precompiled bridge.
-extern "C" uint32_t p4rust_abi_version(void) { return 2; }
+extern "C" uint32_t p4rust_abi_version(void) { return 3; }
 
 // Contain all C++ exceptions before returning across the C ABI boundary.
 extern "C" int32_t p4rust_execute_v1(const p4rust_options_v1* options,
@@ -362,15 +367,28 @@ extern "C" int32_t p4rust_execute_v1(const p4rust_options_v1* options,
 extern "C" int32_t p4rust_execute_controlled_v1(const p4rust_options_v1* options,
     const char* command, int32_t argc, const char* const* argv,
     p4rust_callback_v1 callback, void* context, p4rust_alive_v1 alive, void* control) {
+    return p4rust_execute_reconcile_v3(options, command, argc, argv, callback, context,
+        alive, control, nullptr, nullptr, 1);
+}
+
+// Keep Rust scheduling callbacks alive until every native-data user has been joined.
+extern "C" int32_t p4rust_execute_reconcile_v3(const p4rust_options_v1* options,
+    const char* command, int32_t argc, const char* const* argv,
+    p4rust_callback_v1 callback, void* context, p4rust_alive_v1 alive, void* control,
+    p4rust_reconcile_v3 reconcile, void* scheduler, uint32_t moves) {
     if (!callback) return 1;
     try {
-        if (!options || options->abi_version != 2 || !command || argc < 0 ||
+        if (!options || options->abi_version != 3 || !command || argc < 0 ||
             (argc && !argv) || !options->port || !options->user || !options->client ||
             !options->cwd || !options->charset || !options->input || (alive && !control))
             throw std::runtime_error("Failed to validate bridge arguments");
+        if (reconcile && (!scheduler || moves < 1 || moves > 32 ||
+            (std::strcmp(command, "reconcile") && std::strcmp(command, "rec") && std::strcmp(command, "status"))))
+            throw std::runtime_error("Failed to validate reconcile bridge arguments");
         for (int32_t index = 0; index < argc; ++index)
             if (!argv[index]) throw std::runtime_error("Failed to validate native argument");
-        return p4rust::execute(*options, command, argc, argv, callback, context, alive, control);
+        return p4rust::execute(*options, command, argc, argv, callback, context, alive, control,
+            reconcile, scheduler, moves);
     } catch (const std::exception& error) {
         callback(context, P4RUST_ERROR, reinterpret_cast<const uint8_t*>(error.what()),
                  std::strlen(error.what()), nullptr, 0);
@@ -381,3 +399,5 @@ extern "C" int32_t p4rust_execute_controlled_v1(const p4rust_options_v1* options
     }
     return 1;
 }
+
+#include "reconcile/engine.cc"

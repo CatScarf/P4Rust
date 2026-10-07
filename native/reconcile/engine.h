@@ -1,0 +1,96 @@
+#ifndef P4RUST_RECONCILE_ENGINE_H
+#define P4RUST_RECONCILE_ENGINE_H
+#include "../sdk_hooks.h"
+#include <strarray.h>
+#include <strtable.h>
+#include <rpc.h>
+#include <timer.h>
+#include <progress.h>
+#include <client.h>
+#include <clientprogressreport.h>
+#include <clientservice.h>
+#include <i18napi.h>
+#include <charcvt.h>
+#include <transdict.h>
+#include <pathsys.h>
+#include <mapapi.h>
+#include <ignore.h>
+#include <enviro.h>
+#include <algorithm>
+#include <utility>
+#include <map>
+
+namespace p4rust {
+class User;
+class Task;
+class ReconcileScope {
+    ReconcileScope* previous;
+    p4rust_reconcile_v3 callback;
+    void* scheduler;
+    bool closed = false;
+public:
+    Client* client = nullptr;
+    User& user;
+    uint32_t move_workers;
+    std::map<std::string, std::string> digest_cache;
+    // Install command-local scheduling without sharing state between connections.
+    ReconcileScope(User&, p4rust_reconcile_v3, void*, uint32_t);
+    // Join every Rust worker before SDK connection state is destroyed.
+    ~ReconcileScope();
+    // Dispatch a control operation without exposing network objects to workers.
+    int Call(uint32_t operation);
+    // Transfer one isolated task and its frozen RPC fields to Rust.
+    void Submit(Task*);
+    // Stop workers exactly once before the native session is finalized.
+    void Close();
+    // Mark a failed local stage without unwinding through SDK-owned temporary allocations.
+    void Fail(const char*) noexcept;
+    // Expose only the active scheduling context on the connection thread.
+    static ReconcileScope* Current();
+};
+
+class Fields {
+    std::vector<std::pair<std::string, std::string>> values;
+public:
+    // Copy SDK receive variables before the dispatcher reuses their storage.
+    void Copy(StrDict*);
+    // Replace one owned metadata value without retaining borrowed SDK pointers.
+    void Set(const std::string&, const std::string&);
+    // Read an owned value or the empty optional-field fallback.
+    std::string Get(const std::string&) const;
+    // Preserve the distinction between a missing field and an empty field.
+    bool Has(const std::string&) const;
+    // Borrow bounded field descriptors during one synchronous FFI callback.
+    std::vector<p4rust_field_v2> Frame() const;
+    // Send a frozen confirmation without copying the dispatcher's current request.
+    void Reply(Client*) const;
+};
+
+class Task {
+public:
+    ReconcileScope& scope;
+    Fields request, result;
+    std::string diagnostic;
+    // Capture the command context and category for one exclusively owned job.
+    Task(ReconcileScope&, const char*);
+    // Release isolated SDK objects after worker execution and owner-thread commit.
+    virtual ~Task() = default;
+    // Compute local data without touching the connection.
+    virtual void Run() = 0;
+    // Apply a completed result only on its connection's owning thread.
+    virtual void Commit(int) = 0;
+    // Check the shared interruption callback without acquiring application locks.
+    void Check() const;
+    // Format a contextual SDK error before returning across the ABI.
+    static void CheckError(Error&, const char*);
+};
+class TaskThread {
+    Task* previous;
+public:
+    // Install interruption context while this thread owns a local SDK computation.
+    explicit TaskThread(Task*);
+    // Restore the preceding context before returning to the caller.
+    ~TaskThread();
+};
+}
+#endif

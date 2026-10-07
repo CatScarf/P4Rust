@@ -1,4 +1,4 @@
-//! Raw bridge protocol v2; callers own buffers and must uphold C pointer validity.
+//! Raw bridge protocol v3; callers own buffers and must uphold C pointer validity.
 
 use std::ffi::{c_char, c_void};
 
@@ -32,6 +32,7 @@ pub const STATUS: u32 = 15;
 pub type Callback =
     unsafe extern "C" fn(*mut c_void, u32, *const u8, usize, *const u8, usize) -> i32;
 pub type Alive = unsafe extern "C" fn(*mut c_void) -> i32;
+pub type Reconcile = unsafe extern "C" fn(*mut c_void, u32, *mut c_void, *const u8, usize) -> i32;
 
 #[repr(C)]
 pub(crate) struct Field {
@@ -53,6 +54,34 @@ pub struct Options {
 }
 
 unsafe extern "C" {
+    /// Execute reconciliation with an owned Rust scheduler and synchronous protocol callbacks.
+    pub fn p4rust_execute_reconcile_v3(
+        options: *const Options,
+        command: *const c_char,
+        argc: i32,
+        argv: *const *const c_char,
+        callback: Callback,
+        context: *mut c_void,
+        alive: Option<Alive>,
+        control: *mut c_void,
+        reconcile: Reconcile,
+        scheduler: *mut c_void,
+        move_workers: u32,
+    ) -> i32;
+    /// Execute isolated local work without reading or writing its SDK connection.
+    pub fn p4rust_reconcile_execute_v3(task: *mut c_void) -> i32;
+    /// Read the completed local result through a borrowed SDK dictionary callback.
+    pub fn p4rust_reconcile_result_v3(
+        task: *mut c_void,
+        callback: Callback,
+        context: *mut c_void,
+    ) -> i32;
+    /// Send a frozen confirmation on the native connection's owning thread.
+    pub fn p4rust_reconcile_commit_v3(task: *mut c_void, status: i32) -> i32;
+    /// Borrow diagnostic bytes while the uniquely owned task is alive.
+    pub fn p4rust_reconcile_error_v3(task: *mut c_void, length: *mut usize) -> *const u8;
+    /// Release one task only after its worker and final native callback finish.
+    pub fn p4rust_reconcile_drop_v3(task: *mut c_void);
     /// Query the version of the linked native ABI.
     pub fn p4rust_abi_version() -> u32;
     /// Execute synchronously with valid strings, pointers, and a non-unwinding callback.

@@ -39,6 +39,7 @@ impl CommandStream {
                         &command.form,
                         &worker_control,
                         &capture,
+                        command.reconcile.as_ref(),
                     )
                     .with_context(|| format!("Failed to execute P4 command '{}'", command.name))
                 }));

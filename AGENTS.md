@@ -28,6 +28,7 @@
 - Commit only when explicitly requested. Review diffs, staged files, and untracked files before committing.
 - Use a single-line English commit message. Push after a requested commit if a remote exists.
 - Keep expanded Perforce and Jam sources, checksums, and license notices under `sdk/`. Split vendor files larger than 1 MiB into plain fragments and reconstruct them in the ignored build tree. Preserve vendor code and license text; project formatting and comment rules apply to maintained binding code.
+- Keep modifications to official Perforce sources minimal and enclose every change between paired `// PR_XXX Start` and `// PR_XXX End` markers, replacing `XXX` with the change identifier.
 - Do not track precompiled native libraries. `xtask` builds the SDK and bridge, then installs libraries into six platform resource crates. Consumers compile only Rust. Keep YAML thin and log every external command through the shared executor.
 - Do not commit other files larger than 1 MiB, build outputs, caches, or temporary files.
 

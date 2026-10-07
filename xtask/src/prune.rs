@@ -127,6 +127,12 @@ impl Prune {
                 "/EXPORT:p4rust_abi_version",
                 "/EXPORT:p4rust_execute_v1",
                 "/EXPORT:p4rust_execute_controlled_v1",
+                "/EXPORT:p4rust_execute_reconcile_v3",
+                "/EXPORT:p4rust_reconcile_execute_v3",
+                "/EXPORT:p4rust_reconcile_result_v3",
+                "/EXPORT:p4rust_reconcile_commit_v3",
+                "/EXPORT:p4rust_reconcile_error_v3",
+                "/EXPORT:p4rust_reconcile_drop_v3",
             ])
             .arg(format!(
                 "/OUT:{}",
