@@ -1,0 +1,51 @@
+Instructions and hints regarding the Zlib library.
+--------------------------------------------------------------------------------
+
+Zlib site: http://zlib.net/
+perforce:1666 import directory: //3rd_party/cpp_libraries/zlib...
+
+This directory is composed of pieces from two Zlib forks.  Primarily it is
+from the Chromium fork, with the deflate code coming from Cloudflare's.
+
+    https://github.com/chromium/chromium/tree/main/third_party/zlib/
+    https://github.com/cloudflare/zlib/tree/gcc.amd64
+
+When upgrading Zlib, ensure that job022258 (Mangle zlib linker-visible names)
+does not regress.  This is to support users linking against both our API and
+other versions of Zlib.  For Zlib 1.1.4, change 98998 added zsymbols.h to fix
+this job (adding the PZ_ prefix.)  For 1.2.5, Zlib added compile-time support
+for symbol prefixes in zconf.h (with the z_ prefix,) which we changed to be
+hard-coded.  To revert to making it a compile-time flag, undo the change to
+zconf.h and define Z_PREFIX (be aware that 641267 tried this and caused
+compile errors on HPUX11IA64.)
+
+Two ways of finding out what symbols are in a file (on ELF-based unix) are:
+
+        nm --extern-only p4d | grep z_ | awk '{print $3}' | sort
+   readelf --symbols     p4d | grep z_ | awk '{print $8}' | sort
+
+Note that the Zlib gzip is not the same as gzip.cc - our C++ wrapper.  The
+Zlib distro includes a number of unneeded files.
+
+Zlib is used in various parts of the P4 codebase:  btree(crc32 - must be fast,)
+server networking and client.  Also make sure that a Zlib upgrade doesn't break
+non-C++ APIs such as p4-java.  Testing on platforms with different endianness
+is prudent.
+
+
+Compilers can generate the pshufb instruction in the optimized
+versions of some functions. This instruction only works with CPUs that
+support SSSE3 extensions.  Some very old CPUs (e.g. AMD Phenom II)
+don't have this faeture and get SIGILL signals when asked to inflate
+bytes on the server and client.
+
+A fix has been made to place all the functions that use pshufb into a
+single source file, inffast_chunk.c. These two functions are
+inflate() and inflate_fast_chunk_(). This file is then compiled
+twice, once as before with the pshufb instructions and a second
+time with the -nossse3 option to the compiler to omit pshufb.
+At the same time the functions are renamed with a nossse3 suffix.
+
+Then at runtime all calls to inflate() first check the value of
+x86_cpu_enable_ssse3, set by the library by querying the cpuid state,
+to determine which of these functions to call.

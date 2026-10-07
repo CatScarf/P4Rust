@@ -9,9 +9,9 @@ cc = "1"
 openssl-src = "=300.6.1"
 serde_json = "1"
 sha2 = "0.10"
-serde = { version = "1", features = ["derive"] }
-tar = "0.4"
-zstd = "0.13"
+zip = { version = "2", default-features = false }
+
+
 
 [lints.clippy]
 unwrap_used = "deny"

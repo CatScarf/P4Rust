@@ -1,0 +1,9 @@
+SubDir P4 sslstub ;
+
+SubDirHdrs $(P4) sslstub ;
+
+local C++FLAGS = [ FRemoveAny $(C++FLAGS) : -Wunused ] ;
+
+P4Library $(P4SSLLIB) :
+	sslstub.cc
+	;

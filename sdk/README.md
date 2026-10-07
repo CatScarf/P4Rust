@@ -1,22 +1,9 @@
-# Perforce SDK
+# SDK sources
 
-Perforce 2025.2, build 3086021, with OpenSSL 3 compatibility. The SDK is a maintainer input; published P4Rust crates contain the native libraries they need.
+The repository stores expanded Perforce 2026.1.3062361 and Jam 2.6 sources. `sources.json` records upstream locations and SHA-256 checksums for vendor source files. `xtask` verifies the source bytes, copies them under `temp`, and builds the four API libraries using the vendor Jam rules.
 
-- `include/p4/`: 15 shared headers.
-- `archives/<target>.tar.zst`: four SDK libraries per target.
-- `manifest.json`: upstream download provenance and original library checksums.
-- `archives.json`: compressed archive and extracted-file checksums.
-- `NOTICE.md`: vendor notices.
+Supported targets are Windows MSVC, Linux GNU, and macOS, each on x64 and ARM64. Precompiled SDK and bridge libraries are generated only for resource crate packaging.
 
-`cargo xtask prepare` extracts the current host target, or the target selected by `P4RUST_TARGET`. Use `prepare --all` to extract all retained targets. Extracted files under `lib/` are ignored by Git.
+See [vendor notices](NOTICE.md) and [the Perforce source license](LICENSE).
 
-| Target | Vendor platform |
-| --- | --- |
-| `x86_64-pc-windows-msvc` | `bin.ntx64` |
-| `aarch64-pc-windows-msvc` | `bin.ntarm64` |
-| `x86_64-unknown-linux-gnu` | `bin.linux26x86_64` |
-| `aarch64-unknown-linux-gnu` | `bin.linux26aarch64` |
-| `x86_64-apple-darwin` | `bin.macosx12x86_64` |
-| `aarch64-apple-darwin` | `bin.macosx12arm64` |
-
-GitHub Actions builds all six targets. No 32-bit targets are retained. The SDK libraries are `client`, `p4script_cstub`, `rpc`, and `supp`; scripting runtimes and aggregate archives are excluded.
+Two oversized vendor files are stored as plain fragments below 1 MiB each; xtask restores their exact bytes in the build copy. No source compression is used.

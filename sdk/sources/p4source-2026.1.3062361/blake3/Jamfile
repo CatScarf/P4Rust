@@ -1,0 +1,83 @@
+SubDir P4 blake3 ;
+SubRules P4 blake3 : BLAKE3 ;
+
+local CCFLAGS = $(CCFLAGS) ;
+
+# This disabled warning doesn't need to be applied on all platforms,
+# but getting it to work where it's failing has not happened yet.
+# The following platforms trip up on the 'get_cpu_features':
+# macosxarm64 / XC compiler, linux26aarch64 / clang
+
+if $(OS) != NT
+{
+	SubDirCcFlags -Wno-unused-function ;
+}
+
+if $(OSPLAT:U) = "X86_64" || $(OSPLAT:U) = "X64" || $(OSPLAT:U) = "U"
+{
+	local avx2_src ;
+	local avx512_src ;
+	local sse2_src ;
+	local sse41_src ;
+
+	if $(OS) != NT
+	{
+	    avx2_src   = [ FGristFiles blake3_avx2_x86-64_unix.S ] ;
+	    avx512_src = [ FGristFiles blake3_avx512_x86-64_unix.S ] ;
+	    sse2_src   = [ FGristFiles blake3_sse2_x86-64_unix.S ] ;
+	    sse41_src  = [ FGristFiles blake3_sse41_x86-64_unix.S ] ;
+	}
+	else
+	{
+	    avx2_src   = [ FGristFiles blake3_avx2_x86-64_windows_msvc.asm ] ;
+	    avx512_src = [ FGristFiles blake3_avx512_x86-64_windows_msvc.asm ] ;
+	    sse2_src   = [ FGristFiles blake3_sse2_x86-64_windows_msvc.asm ] ;
+	    sse41_src  = [ FGristFiles blake3_sse41_x86-64_windows_msvc.asm ] ;
+	}
+
+	local avx2   =  [ FGristFiles $(avx2_src:S=$(SUFOBJ)) ] ;
+	local avx512 =  [ FGristFiles $(avx512_src:S=$(SUFOBJ)) ] ;
+	local sse2   =  [ FGristFiles $(sse2_src:S=$(SUFOBJ)) ] ;
+	local sse41  =  [ FGristFiles $(sse41_src:S=$(SUFOBJ)) ] ;
+
+	if $(CC) = clang
+	{
+	    # Clang 6 on OSX won't generate AVX-512 without this.
+	    # Newer Clangs don't have this problem.
+	    CCFLAGS on [ FGristFiles $(avx512) ] = -mavx512f -mavx512vl $(CCFLAGS) ;
+	}
+
+	P4APILibrary $(SUPPORTLIB) :
+	    $(avx2_src) $(avx512_src) $(sse2_src) $(sse41_src)
+	;
+}
+
+if $(OSPLAT:U) = "X86"
+{
+	P4APILibrary $(SUPPORTLIB) :
+	    blake3_avx2.c
+	    blake3_avx512.c
+	    blake3_sse2.c
+	    blake3_sse41.c
+	;
+}
+
+if $(OSPLAT:U) = "ARM64" || $(OSPLAT:U) = "AARCH64" || $(OSPLAT:U) = "U"
+{
+	P4APILibrary $(SUPPORTLIB) :
+	    blake3_neon.c
+	;
+}
+
+if $(OS) != NT
+{
+	OPTIM on [ FGristSourceFiles blake3.o ] = $(OPTIM) -O3 ;
+	OPTIM on [ FGristSourceFiles blake3_dispatch.o ] = $(OPTIM) -O3 ;
+	OPTIM on [ FGristSourceFiles blake3_portable.o ] = $(OPTIM) -O3 ;
+}
+
+P4APILibrary $(SUPPORTLIB) :
+	blake3.c
+	blake3_dispatch.c
+	blake3_portable.c
+;

@@ -1,5 +1,4 @@
 use crate::error::{Result, ResultExt};
-mod archive;
 mod automation;
 #[path = "../../src/error.rs"]
 mod error;
@@ -8,6 +7,7 @@ mod platform;
 mod producer;
 mod prune;
 mod release;
+mod sdk;
 use producer::Producer;
 
 // Execute the explicit maintainer workflow for the selected SDK platform.

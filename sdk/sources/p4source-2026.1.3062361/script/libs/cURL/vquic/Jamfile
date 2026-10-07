@@ -1,0 +1,47 @@
+SubDir P4 script libs cURL vquic ;
+
+# Note that this block is duplicated in the parent directory as
+# well as in vauth.
+
+if $(OS) = NT
+{
+	SubDirCcFlags /DCURL_STATICLIB /DWIN32 /DBUILDING_LIBCURL
+	              /DCURL_DISABLE_FTP /DCURL_DISABLE_LDAP
+	              /DCURL_DISABLE_TELNET /DCURL_DISABLE_DICT
+	              /DCURL_DISABLE_FILE /DCURL_DISABLE_TFTP
+	              /DCURL_DISABLE_IMAP /DCURL_DISABLE_POP3
+	              /DUSE_OPENSSL /DHAVE_ZLIB_H /DHAVE_ZLIB /DHAVE_LIBZ
+	              /DUSE_IPV6 /DCURL_DISABLE_NTLM /DCURL_DISABLE_GOPHER
+	              /DCURL_DISABLE_RTSP /DUSE_SYNC_DNS /DCURL_DISABLE_MQTT
+	              /DCURL_DISABLE_WEBSOCKETS ;
+}
+else
+{
+	local flag ;
+	if $(CLANGVER)
+	{
+	    # smtp.c:1216
+	    flag = -Wno-string-plus-int ;
+	}
+
+	SubDirCcFlags -DHAVE_CONFIG_H -DBUILDING_LIBCURL -DCURL_STATICLIB
+	              -DCURL_HIDDEN_SYMBOLS -DCURL_DISABLE_NTLM
+	              -DCURL_DISABLE_WEBSOCKETS
+	              -fvisibility=hidden $(flag) ;
+}
+
+SubDirCcFlags -I$(SSLINCDIR) [ FDefines Z_PREFIX ] ;
+
+SubDirHdrs $(P4) script libs cURL ;
+SubDirHdrs $(P4) script libs cURL curl ;
+
+P4APILibrary $(P4SCRIPT_CURL) :
+	capsule.c
+	cf-capsule.c
+	cf-ngtcp2-cmn.c
+	cf-ngtcp2-proxy.c
+	cf-ngtcp2.c
+	cf-quiche.c
+	vquic-tls.c
+	vquic.c
+;

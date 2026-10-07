@@ -1,0 +1,135 @@
+mod jam;
+mod source;
+
+use crate::{
+    automation::command::Runner,
+    error::{Result, ResultExt, ensure},
+    platform::Platform,
+};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
+
+pub(crate) struct Sdk;
+
+impl Sdk {
+    // Verify and extract the pinned Perforce and Jam source archives.
+    pub(crate) fn prepare(root: &Path) -> Result<()> {
+        source::Sources::prepare(root).context("Failed to prepare SDK sources")
+    }
+
+    // Locate the checked source tree without retaining precompiled SDK inputs.
+    pub(crate) fn source(root: &Path) -> Result<PathBuf> {
+        source::Sources::directory(root, "perforce").context("Failed to locate Perforce sources")
+    }
+
+    // Build the four static API libraries using the vendor's dependency rules.
+    pub(crate) fn build(root: &Path, ssl: &Path, platform: &Platform) -> Result<PathBuf> {
+        let source = Self::source(root).context("Failed to find SDK build inputs")?;
+        let rules = source.join("Jamrules");
+        let text = fs::read_to_string(&rules).context("Failed to read SDK production rules")?;
+        fs::write(
+            rules,
+            text.replace(
+                "local _Z = /Zi ;",
+                "local _Z = ; # P4Rust: omit production debug records.",
+            ),
+        )
+        .context("Failed to configure SDK debug policy")?;
+        let output = root.join("temp/sdk-build").join(&platform.target);
+        fs::create_dir_all(&output).context("Failed to create SDK build directory")?;
+        let executable = jam::Jam::build(root, platform).context("Failed to build Jam")?;
+        let tool = platform
+            .compiler()
+            .try_get_compiler()
+            .context("Failed to locate SDK compiler")?;
+        let jobs = std::thread::available_parallelism()
+            .context("Failed to select SDK parallelism")?
+            .get()
+            .to_string();
+        let mut command = Command::new(executable);
+        command
+            .current_dir(&source)
+            .envs(tool.env().iter().cloned())
+            .args([
+                "-q",
+                "-j",
+                &jobs,
+                "-sSMARTHEAP=0",
+                "-sMALLOC_OVERRIDE=no",
+                "-sUSE_EXTENSIONS=0",
+                "-sUSE_WILDARGS=no",
+                "-sBUILD_P4D=false",
+                "-sWARNINGS_AS_ERRORS=0",
+                "-sSSL=yes",
+            ])
+            .arg(format!("-sEXEC={}", output.display()))
+            .arg(format!("-sSSLINCDIR={}", ssl.join("include").display()))
+            .arg(format!("-sSSLLIBDIR={}", ssl.display()));
+        Self::platform(&mut command, platform).context("Failed to configure SDK platform")?;
+        let suffix = if platform.msvc() { "lib" } else { "a" };
+        let libraries: Vec<_> = ["client", "p4script_cstub", "rpc", "supp"]
+            .iter()
+            .map(|name| format!("lib{name}.{suffix}"))
+            .collect();
+        command.args(&libraries);
+        Runner::run(&mut command, false).context("Failed to compile Perforce SDK sources")?;
+        for name in &libraries {
+            ensure!(
+                output.join(name).is_file(),
+                "Failed to find produced SDK library: {name}"
+            );
+        }
+        Ok(output)
+    }
+
+    // Select native compiler settings and a valid Apple SDK explicitly.
+    fn platform(command: &mut Command, platform: &Platform) -> Result<()> {
+        let arm = platform.target.starts_with("aarch64");
+        if platform.msvc() {
+            command
+                .args(["-sOS=NT", "-sMSVSVER=17", "-sCRT=dyn", "-sTYPE=dyn"])
+                .arg(if arm {
+                    "-sOSPLAT=ARM64"
+                } else {
+                    "-sOSPLAT=X64"
+                });
+        } else if platform.apple() {
+            let output = Runner::run(Command::new("xcrun").arg("--show-sdk-path"), true)
+                .context("Failed to locate Apple SDK")?;
+            let sdk =
+                String::from_utf8(output.stdout).context("Failed to decode Apple SDK path")?;
+            command
+                .args([
+                    "-sOS=MACOSX",
+                    "-sOSVER=120",
+                    "-sOSCOMP=clang",
+                    "-sCLANGVER=17",
+                    "-sTYPE=pic",
+                ])
+                .arg(if arm {
+                    "-sOSPLAT=ARM64"
+                } else {
+                    "-sOSPLAT=X86_64"
+                })
+                .arg(format!("-sMACOSX_SDK={}", sdk.trim()));
+        } else {
+            command
+                .args([
+                    "-sOS=LINUX",
+                    "-sOSVER=26",
+                    "-sOSCOMP=gcc",
+                    "-sGCCVER=14",
+                    "-sTYPE=pic",
+                ])
+                .arg(if arm {
+                    "-sOSPLAT=AARCH64"
+                } else {
+                    "-sOSPLAT=X86_64"
+                });
+        }
+        Ok(())
+    }
+}

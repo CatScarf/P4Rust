@@ -8,3 +8,6 @@
 /xtask/Cargo.lock
 
 /native/archives/
+
+/resources/*/native/
+/resources/*/*-LICENSE.txt

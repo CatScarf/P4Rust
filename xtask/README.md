@@ -1,21 +1,17 @@
 # Maintainer tasks
 
-- `cargo xtask prepare`: verify and extract the selected SDK target.
-- `cargo xtask prepare --all`: extract all retained 64-bit SDK targets.
-- `cargo xtask build [Cargo options]`: prepare the SDK, compile native libraries, and build Rust.
-- `cargo xtask ci`: install runner dependencies, build native and Rust libraries, run Clippy, and package.
-- `cargo xtask publish`: merge six platform artifacts and create or replace the versioned GitHub release.
-- `cargo xtask check`: prepare libraries and run strict workspace Clippy.
-- `cargo xtask package`: prepare libraries and verify the public crate offline.
-- `cargo xtask native [--openssl-lib-dir <cache>]`: rebuild the native release with the maintainer toolchain, without tracking generated libraries.
-- `cargo xtask archive`: refresh archives after intentional SDK changes; extract all targets before editing inputs.
+- `cargo xtask prepare`: verify and extract pinned expanded Perforce and Jam sources.
+- `cargo xtask build [Cargo options]`: build native dependencies and Rust.
+- `cargo xtask check`: build native dependencies and run strict workspace Clippy.
+- `cargo xtask package`: build dependencies, verify workspace packages offline, and stage the common Rust crate and selected resource crate.
+- `cargo xtask ci`: install runner dependencies, build, run Clippy, and package.
+- `cargo xtask publish`: combine six platform artifacts into one ZIP and create or replace the versioned GitHub release.
+- `cargo xtask native [--openssl-lib-dir <cache>]`: produce native resources, optionally reusing a compatible OpenSSL source and static-library cache.
 
-Only SDK `.tar.zst` library archives and their SHA-256 inventory are tracked. Extracted SDKs and generated native libraries under `sdk/lib` and `native/lib` are ignored. Archive checksums and every extracted file are checked before use; unchanged valid files are reused. Native libraries are built locally and included only in packaged crates. Headers and vendor notices remain readable in Git.
+Sources and their SHA-256 inventory live under `sdk`. Build copies of sources, compiler outputs, and dependency caches live under ignored `temp`. Generated libraries and licenses are installed under `resources/<target>` and included only in distributable resource crates. Consumer build scripts emit linker metadata and never invoke native tools.
 
-The public package contains extracted native libraries so downstream builds need no xtask, decompression tools, or C++ compilation. Its Rust build script only emits linker metadata. Set `P4RUST_TARGET` to one of the six targets in [the SDK table](../sdk/README.md); the default is the current host. CI uses a native runner for each target.
+Set `P4RUST_TARGET` to a supported resource directory name; the default is the host. CI uses native runners for six targets. Keep the public and resource crate versions synchronized. Verification runs through GitHub Actions, with `cargo clippy --workspace --all-targets --all-features -- -D warnings` and package builds; no tests are included.
 
-Native production requires a target-compatible C++ compiler, Perl, PowerShell 7, LLVM archive tools, and NASM on x64. MSVC uses nmake; Linux and macOS use make. `P4RUST_OBJCOPY`, `P4RUST_STRIP`, and `P4RUST_AR` override LLVM tools; `P4RUST_JOM` enables parallel MSVC OpenSSL builds. OpenSSL production is cached locally; `native --openssl-lib-dir <cache>` accepts an explicit static-library cache.
+Production uses the vendor Jam rules with extensions disabled, a target-compatible compiler, Perl, LLVM tools, and NASM on x64. `P4RUST_OBJCOPY`, `P4RUST_STRIP`, and `P4RUST_AR` override archive tools; `P4RUST_JOM` enables parallel MSVC OpenSSL builds. Native pruning retains the complete transitive archive-member closure of all ABI exports.
 
-`bundle-release.ps1` merges six target crates into the versioned release ZIP and rejects missing, oversized, or mismatched packages. The release workflow reads the public crate version automatically and replaces same-version assets. GitHub Releases must remain mutable to allow replacements.
-
-External commands use one executor and print `> <command>` before execution.
+All external commands use one executor and print `> <command>` before execution. Release publishing requires `GH_TOKEN` and mutable GitHub Releases.

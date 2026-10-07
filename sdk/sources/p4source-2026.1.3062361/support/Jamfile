@@ -1,0 +1,120 @@
+SubDir P4 support ;
+
+SubDirHdrs $(P4) blake3 ;
+SubDirHdrs $(P4) i18n ;
+SubDirHdrs $(P4) jsmn ;
+SubDirHdrs $(P4) map ;
+SubDirC++Flags -I$(SSLINCDIR) ;
+
+# Permit #include from boost (for StrongUUID).
+BOOSTINCDIR ?= [ FDirName $(EXEC_INC) ] ;
+SubDirC++Flags -I$(BOOSTINCDIR) ;
+
+if $(LDAPSTUB) = no && $(OS) != NT
+{
+        SubDirC++Flags
+                -I$(OPENLDAPINCDIR)
+                -I$(CYRUSSASLPINCDIR) ;
+}
+
+# OpenTelelmetry Logging
+if $(USE_OTEL)
+{
+	local tracer_obj = [ FAppendSuffix tracer : $(SUFOBJ) ] ;
+	C++FLAGS on [ FGristFiles $(tracer_obj) ] = -I \"$(OTLPINCDIR)\" -I \"$(P4)/script/libs/cURL\" ;
+}
+
+if $(OSPLAT) = X86_64 || $(OSPLAT) = X86 ||
+   $(OSPLAT) = X64 || ( $(OSPLAT) = IA64 && $(OS) != HPUX ) {
+	ObjectDefines [ FGristSourceFiles md5.o ] : MD5NOBUF ;
+	OPTIM on [ FGristSourceFiles md5.o ] += $(OPTIM) -O3 ;
+}
+
+if $(OS) != NT
+{
+	OPTIM on [ FGristSourceFiles blake3digester.o ] += $(OPTIM) -O3 ;
+}
+
+P4APILibrary $(SUPPORTLIB) :
+	base64.cc
+	bitarray.cc
+	contextpat.cc
+	datetime.cc
+	debug.cc
+	digest.cc
+	error.cc
+	errormsh.cc
+	errorsys.cc
+	handler.cc
+	hash.cc
+	ident.cc
+	ignore.cc
+	intarray.cc
+	jnlpos.cc
+	jnltrack.cc
+	jsonescapes.cc
+	mangle.cc
+	mapapi.cc
+	md5.cc
+	objhashmap.cc
+	options.cc
+	progress.cc
+	random.cc
+	regmatch.cc
+	regexp.cc
+	serverid.cc
+	sha1.cc
+	sha256.cc
+	spec.cc
+	specchar.cc
+	specdata.cc
+	specdatajson.cc
+	specdef.cc
+	specparse.cc
+	splr.cc
+	strarray.cc
+	strbuf.cc
+	strdict.cc
+	strops.cc
+	strtable.cc
+	strtree.cc
+	strxml.cc
+	ticket.cc
+	tracker.cc
+	utils.cc
+	uuid.cc
+	uuidweak.cc
+#	uuidstrong.cc
+	vararray.cc
+	varlist.cc
+	varqsort.cc
+	vartree.cc
+	trienode.cc
+	;
+
+P4Library $(P4TRACELIB) :
+	tracer.cc
+	;
+
+if $(USE_EXTENSIONS) = 1
+{
+	P4APILibrary $(SUPPORTLIB) : tinyxml2.cpp ;
+}
+
+if $(USE_CDC) = 1
+{
+	P4APILibrary $(SUPPORTLIB) :
+		blake3digester.cc
+		chunkmap.cc
+		;
+}
+
+Ident ident.cc ;
+
+DefineVar ident.cc : OPENSSL_VERSION_TEXT ;
+
+if $(OS) = AS400
+{
+	P4APILibrary $(SUPPORTLIB) : ebcdic.cc ;
+}
+

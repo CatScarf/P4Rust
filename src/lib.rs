@@ -1,16 +1,20 @@
 //! Safe Rust bindings for the Perforce C++ API.
 
 mod capture;
+mod command;
 mod control;
 mod error;
 mod ffi;
 mod native;
 mod output;
+mod stream;
 
-pub use control::{CancellationToken, RunOptions};
+pub use command::Command;
+pub use control::CancellationToken;
 use error::ensure;
 pub use error::{Error, Result, ResultExt};
 pub use output::{Output, RawOutput};
+pub use stream::{CommandStream, Event, Progress, Record};
 
 /// Explicit settings for a Perforce connection.
 #[derive(Clone, Debug)]
@@ -74,71 +78,8 @@ impl Client {
         Ok(Self { config })
     }
 
-    /// Run a Perforce command with noninteractive form input disabled.
-    pub fn run(&self, command: &str, args: &[&str]) -> Result<Output> {
-        self.run_with_input(command, args, "")
-            .context("Failed to run P4 command")
-    }
-
-    /// Run a Perforce command with explicit noninteractive form input.
-    pub fn run_with_input(&self, command: &str, args: &[&str], input: &str) -> Result<Output> {
-        self.execute(command, args, input, None)
-            .context("Failed to run P4 command with input")
-    }
-
-    /// Run a command with a deadline and cancellation signal.
-    pub fn run_with_options(
-        &self,
-        command: &str,
-        args: &[&str],
-        options: &RunOptions,
-    ) -> Result<Output> {
-        self.run_with_input_and_options(command, args, "", options)
-            .context("Failed to run controlled P4 command")
-    }
-
-    /// Run a command with explicit input, a deadline, and cancellation.
-    pub fn run_with_input_and_options(
-        &self,
-        command: &str,
-        args: &[&str],
-        input: &str,
-        options: &RunOptions,
-    ) -> Result<Output> {
-        self.execute(command, args, input, Some(options))
-            .context("Failed to run controlled P4 command with input")
-    }
-
-    // Validate command data before choosing synchronous or controlled execution.
-    fn execute(
-        &self,
-        command: &str,
-        args: &[&str],
-        input: &str,
-        options: Option<&RunOptions>,
-    ) -> Result<Output> {
-        ensure!(
-            !command.is_empty() && !command.contains('\0'),
-            "Failed to validate command name"
-        );
-        ensure!(
-            args.len() <= i32::MAX as usize,
-            "Failed to validate arguments: too many arguments"
-        );
-        ensure!(
-            !input.contains('\0'),
-            "Failed to validate input: embedded NUL"
-        );
-        for arg in args {
-            ensure!(
-                !arg.contains('\0'),
-                "Failed to validate argument: embedded NUL"
-            );
-        }
-        let result = match options {
-            Some(options) => control::Control::execute(&self.config, command, args, input, options),
-            None => native::Native::execute(&self.config, command, args, input, None),
-        };
-        result.with_context(|| format!("Failed to execute native P4 command '{command}'"))
+    /// Configure a Perforce command using one execution path for queries and transfers.
+    pub fn command(&self, name: impl Into<String>) -> Command {
+        Command::new(&self.config, name)
     }
 }

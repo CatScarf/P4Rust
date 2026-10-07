@@ -1,0 +1,45 @@
+SubDir P4 misc p4mon-exporter ;
+
+SubDirHdrs $(P4) client ;
+SubDirHdrs $(P4) support ;
+SubDirHdrs $(P4) sys ;
+
+if $(PROMETHEUSCPPLIBDIR) && $(PROMETHEUSCPPINCDIR)
+{
+	if $(OS) = NT {
+		LIBPREFIX = lib$(SLASH) ;
+		LIBSUFFIX = .lib ;
+	} else {
+		LIBPREFIX = lib ;
+		LIBSUFFIX = .a ;
+	}
+
+	SubDirC++Flags -I$(SSLINCDIR) ;
+	SubDirC++Flags -I$(PROMETHEUSCPPINCDIR) ;
+
+	LINK_WITH_STDC++ += p4mon-prometheus-exporter ;
+	
+	P4Main p4mon-prometheus-exporter : p4mon-prometheus-exporter.cc ;
+
+	Ident p4mon-prometheus-exporter.cc ;
+	
+	if $(OS) = NT {
+		LinkLibraries p4mon-prometheus-exporter :
+			$(PROMETHEUSCPPLIBDIR)$(SLASH)prometheus-cpp-pull.lib
+			$(PROMETHEUSCPPLIBDIR)$(SLASH)prometheus-cpp-core.lib
+			$(PROMETHEUSCPPLIBDIR)$(SLASH)civetweb-cpp.lib
+			$(PROMETHEUSCPPLIBDIR)$(SLASH)civetweb.lib
+			$(PROMETHEUSCPPLIBDIR)$(SLASH)zlibd.lib
+			$(SUPPORTLIB)
+		;
+	} else {
+		LinkLibraries p4mon-prometheus-exporter :
+			$(PROMETHEUSCPPLIBDIR)$(SLASH)libprometheus-cpp-pull.a
+			$(PROMETHEUSCPPLIBDIR)$(SLASH)libprometheus-cpp-core.a
+			$(PROMETHEUSCPPLIBDIR)$(SLASH)libz.a
+			$(SUPPORTLIB)
+			;
+	}
+
+	LinkPthread p4mon-prometheus-exporter ;
+}

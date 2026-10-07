@@ -1,0 +1,30 @@
+SubDir P4 dme ;
+
+local C++FLAGS = [ C++FLAGS+STD $(C++_VERSION_MAX) ] ;
+
+SubDirHdrs $(P4) client ;
+
+SubDirHdrs $(P4) db ;
+SubDirHdrs $(P4) dm ;
+SubDirHdrs $(P4) dmc ;
+SubDirHdrs $(P4) i18n ;
+SubDirHdrs $(P4) lbr ;
+SubDirHdrs $(P4) dma ;
+SubDirHdrs $(P4) dml ;
+SubDirHdrs $(P4) map ;
+SubDirHdrs $(P4) dmrpc ;
+SubDirHdrs $(P4) rpc ;
+SubDirHdrs $(P4) sys ;
+SubDirHdrs $(P4) support ;
+SubDirHdrs $(P4) script ;
+SubDirHdrs $(P4) net ;
+SubDirHdrs $(P4) zlib ;
+
+ObjectC++Flags dmextension53.cc   : -I $(P4)/script/lua-5.3 ;
+
+P4APILibrary $(P4SCRIPT) : 
+	dmextensiondata.cc
+	dmextension.cc
+	dmextension53.cc
+	dmetypes.cc
+;

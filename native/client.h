@@ -10,7 +10,7 @@ extern "C" {
 
 enum p4rust_event_v1 {
     P4RUST_TEXT = 1, P4RUST_BINARY = 2, P4RUST_RECORD = 3,
-    P4RUST_FIELD = 4, P4RUST_WARNING = 5, P4RUST_ERROR = 6
+    P4RUST_FIELD = 4, P4RUST_WARNING = 5, P4RUST_ERROR = 6, P4RUST_RECORD_END = 7, P4RUST_PROGRESS = 8
 };
 
 typedef int32_t (*p4rust_callback_v1)(void*, uint32_t,

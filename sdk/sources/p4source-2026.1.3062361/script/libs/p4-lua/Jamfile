@@ -1,0 +1,33 @@
+SubDir P4 script libs p4-lua ;
+
+SubDirHdrs $(P4) client ;
+SubDirHdrs $(P4) diff ;
+SubDirHdrs $(P4) i18n ;
+SubDirHdrs $(P4) script ;
+SubDirHdrs $(P4) script lua-5.3 ;
+SubDirHdrs $(P4) support ;
+SubDirHdrs $(P4) sys ;
+
+P4APILibrary $(P4SCRIPT) :
+	p4lua.cc
+	clientuserp4lua.cc
+	clientprogressp4lua.cc
+	p4result.cc
+	p4error.cc
+	specdatap4lua.cc
+	specmgrp4lua.cc
+	p4mapmaker.cc
+	p4mergedata.cc
+	;
+
+if $(GCCVER) && [ FVersionCmp $(GCCVER) : 8 ] < 0 ||
+   $(CLANGVER) && [ FVersionCmp $(CLANGVER) : 9 ] >= 0
+{
+	ObjectC++Flags p4lua.cc : -ftemplate-depth=2048 ;
+}
+
+if $(CLANGVER) && [ FVersionCmp $(CLANGVER) : 21 ] >= 0
+{
+	# job131870.
+	ObjectC++Flags p4mergedata.cc : -Wno-nonnull ;
+}

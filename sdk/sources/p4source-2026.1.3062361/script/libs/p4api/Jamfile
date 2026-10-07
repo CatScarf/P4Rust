@@ -1,0 +1,12 @@
+SubDir P4 script libs p4api ;
+
+SubDirHdrs $(P4) client ;
+SubDirHdrs $(P4) script ;
+SubDirHdrs $(P4) script lua-5.3 ;
+
+P4APILibrary $(P4SCRIPT) :
+	clientapilua.cc
+	clientuserlua.cc
+	errorlua.cc
+	filesyslua.cc
+	;

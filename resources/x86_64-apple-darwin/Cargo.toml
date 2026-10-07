@@ -1,0 +1,12 @@
+[package]
+name = "p4rust-resources-x86_64-apple-darwin"
+version = "0.1.0"
+edition = "2024"
+description = "Precompiled Perforce C ABI resources for x86_64-apple-darwin"
+repository = "https://github.com/CatScarf/P4Rust"
+links = "p4rust_abi_v1_x86_64_apple_darwin"
+include = ["src/**", "build.rs", "native/**", "PERFORCE-LICENSE.txt", "OPENSSL-LICENSE.txt", "Cargo.toml"]
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"

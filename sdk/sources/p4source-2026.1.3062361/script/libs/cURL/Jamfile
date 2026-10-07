@@ -1,0 +1,216 @@
+SubDir P4 script libs cURL ;
+
+SubDirCcFlags -I$(SSLINCDIR) [ FDefines Z_PREFIX ] ;
+
+SubDirHdrs $(P4) script libs cURL ;
+SubDirHdrs $(P4) script libs cURL curl ;
+SubDirHdrs $(P4) script libs cURL curlx ;
+SubDirHdrs $(P4) zlib ;
+
+# Just adding these to the CCFLAGS is less verbose than writing an
+# ObjectDefines for each source file.
+#
+# Note that this block is duplicated in the vauth and vtls dirs.
+
+if $(OS) = NT
+{
+	SubDirCcFlags /DCURL_STATICLIB /DWIN32 /DBUILDING_LIBCURL
+	              /DCURL_DISABLE_FTP /DCURL_DISABLE_LDAP
+	              /DCURL_DISABLE_TELNET /DCURL_DISABLE_DICT
+	              /DCURL_DISABLE_FILE /DCURL_DISABLE_TFTP
+	              /DCURL_DISABLE_IMAP /DCURL_DISABLE_POP3
+	              /DUSE_OPENSSL /DHAVE_ZLIB_H /DHAVE_ZLIB /DHAVE_LIBZ
+	              /DUSE_IPV6 /DCURL_DISABLE_NTLM /DCURL_DISABLE_GOPHER
+	              /DCURL_DISABLE_RTSP /DUSE_SYNC_DNS /DCURL_DISABLE_MQTT 
+	              /DCURL_DISABLE_WEBSOCKETS ;
+}
+else
+{
+	local flag ;
+	if $(CLANGVER)
+	{
+	    # smtp.c:1216
+	    flag = -Wno-string-plus-int ;
+	}
+
+	SubDirCcFlags -DHAVE_CONFIG_H -DBUILDING_LIBCURL -DCURL_STATICLIB
+	              -DCURL_HIDDEN_SYMBOLS -DCURL_DISABLE_NTLM
+	              -DCURL_DISABLE_WEBSOCKETS
+	              -fvisibility=hidden $(flag) ;
+}
+
+
+{
+	# We don't want the 'undefined' option set in -fsanitize
+	# flag when building the files in this directory (really
+	# any that use buf_chunk in bufq.h)
+
+
+	# We take a local copy of OPTIM
+	local OPTIM = $(OPTIM) ;
+	for x in $(OPTIM)
+	{
+	    switch $(x)
+	    {
+	        case -fsanitize=* :
+	             local sub = [ FSplit $(x) : "=" ] ;
+	             local work = [ FSplit $(sub[2]) : "," ] ;
+	             local newwork ;
+	             for k in $(work)
+	             {
+	                switch $(k)
+	                {
+	                      case undefined :
+	                      case * :
+	                      newwork += $(k) ;
+	                }
+	             }
+	             OPTIM = $(sub[1]) ;
+	             OPTIM += $(newwork:J=,) ;
+	             OPTIM = $(OPTIM:J="=") ;
+	    }
+	}
+
+local DEFINES = [ FRemoveAny $(DEFINES) : USE_OPENLDAP ] ;
+
+P4APILibrary $(P4SCRIPT_CURL) :
+	amigaos.c
+	altsvc.c
+	asyn-ares.c
+	asyn-base.c
+	asyn-thrdd.c
+	bufref.c
+	bufq.c
+	cf-dns.c
+	cf-h1-proxy.c
+	cf-h2-proxy.c
+	cf-haproxy.c
+	cf-https-connect.c
+	cf-ip-happy.c
+	cf-recvbuf.c
+	cf-setup.c
+	cf-socket.c
+	cfilters.c
+	conncache.c
+	connect.c
+	content_encoding.c
+	cookie.c
+	creds.c
+	cshutdn.c
+	curl_addrinfo.c
+	curl_endian.c
+	curl_fnmatch.c
+	curl_fopen.c
+	curl_gethostname.c
+	curl_get_line.c
+	curl_gssapi.c
+	curl_memrchr.c
+	curl_ntlm_core.c
+	curl_range.c
+	curl_sasl.c
+	curl_sha512_256.c
+	curl_share.c
+	curl_sspi.c
+	curl_threads.c
+	curl_trc.c
+	cw-out.c
+	cw-pause.c
+	dict.c
+	doh.c
+	dllmain.c
+	dnscache.c
+	dynhds.c
+	easy.c
+	easygetopt.c
+	easyoptions.c
+	escape.c
+	fake_addrinfo.c
+	file.c
+	fileinfo.c
+	formdata.c
+	ftp.c
+	ftplistparser.c
+	getenv.c
+	getinfo.c
+	gopher.c
+	curl_hash.c
+	headers.c
+	hmac.c
+	hostip.c
+	hostip4.c
+	hostip6.c
+	hsts.c
+	http.c
+	http1.c
+	http2.c
+	httpsrr.c
+	http_aws_sigv4.c
+	http_chunks.c
+	http_digest.c
+	http_negotiate.c
+	http_ntlm.c
+	http_proxy.c
+	idn.c
+	if2ip.c
+	imap.c
+	ldap.c
+	llist.c
+	md4.c
+	curl_md5.c
+	macos.c
+	memdebug.c
+	mime.c
+	mprintf.c
+	mqtt.c
+	multi_ev.c
+	multi_ntfy.c
+	multi.c
+	netrc.c
+	openldap.c
+	parsedate.c
+	pingpong.c
+	peer.c
+	pop3.c
+	protocol.c
+	curl_progress.c
+	psl.c
+	proxy.c
+	rand.c
+	ratelimit.c
+	request.c
+	rtsp.c
+	select.c
+	sendf.c
+	setopt.c
+	curl_sha256.c
+	slist.c
+	smb.c
+	smtp.c
+	socketpair.c
+	socks.c
+	socks_gssapi.c
+	socks_sspi.c
+	splay.c
+	strcase.c
+	strequal.c
+	strerror.c
+	system_win32.c
+	telnet.c
+	tftp.c
+	thrdpool.c
+	transfer.c
+	uint-bset.c
+	uint-hash.c
+	uint-spbset.c
+	uint-table.c
+	url.c
+	urlapi.c
+	version.c
+	ws.c
+	;
+}
+SubInclude P4 script libs cURL vauth ;
+SubInclude P4 script libs cURL vtls ;
+SubInclude P4 script libs cURL vquic ;
+SubInclude P4 script libs cURL curlx ;
+

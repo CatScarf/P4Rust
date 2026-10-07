@@ -1,0 +1,26 @@
+SubDir P4 msgs ;
+
+SubDirHdrs $(P4) support ;
+
+Ident msgconfig_wrap.cc msgdb.cc msghelp_wrap.cc ;
+ObjectC++Flags msgconfig_wrap.cc msghelp_wrap.cc : -I$(SSLINCDIR) ;
+
+P4APILibrary $(SUPPORTLIB) : 
+	msgclient.cc
+	msgconfig_wrap.cc
+	msgdb.cc
+	msgdm.cc
+	msgdm2.cc
+	msggraph.cc
+	msghelp_wrap.cc
+	msglbr.cc
+	msgos.cc
+	msgrpc.cc
+	msgscript.cc
+	msgserver.cc
+	msgserver2.cc
+	msgspec.cc
+	msgsupp.cc
+	p4tagl.cc
+	p4tags.cc
+	;

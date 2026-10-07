@@ -1,0 +1,246 @@
+SubDir P4 ;
+
+USE_EXTENSIONS ?= 1 ;
+
+if $(USE_EXTENSIONS) = 1
+{
+	DEFINES += USE_EXTENSIONS=1 ;
+}
+
+# Define the default language standard.  This is used by the
+# Jamrules C++FLAGS+STD function - it knows to remove the flag if
+# it's already there when adding a different version of the standard.
+
+C++_VERSION_BASELINE ?= c++17 ;
+
+# Like the baseline, we define the highest version of the standard we
+# wish to use.
+
+C++_VERSION_MAX ?= c++17 ;
+
+# We want to ensure that certain parts of the code use a portable version
+# of the standard, but we can't do it by default since mixing objects
+# compiled with different versions of the standard isn't safe and isn't
+# compatible with LTO, so we only do it by request.
+#
+# According to the steps in https://gcc.gnu.org/wiki/Cxx11AbiCompatibility we're
+# safe, but we'd still like to use LTO so we still have to do this.
+
+if $(C++_LANGUAGE_COMPAT_CHECK) = 1 { C++_VERSION_BASELINE = c++98 ; }
+
+# Now we set the standard for the entire project.  There are overrides that
+# set C++_VERSION_MAX in the non-P4API parts of the code (e.g. the server).
+
+local C++FLAGS = [ C++FLAGS+STD $(C++_VERSION_BASELINE) ] ;
+local CCFLAGS = $(CCFLAGS) ;
+local LINKLIBS = $(LINKLIBS) ;
+local DEFINES = $(DEFINES) ;
+
+if $(OS) = NT && [ FVersionCmp $(MSVSVER) : 15 ] >= 0
+{
+	# VS doesn't keep the __cpluplus macro accurate by default.
+	# https://blogs.msdn.microsoft.com/vcblog/2018/04/09/msvc-now-correctly-reports-__cplusplus/
+	C++FLAGS = /Zc:__cplusplus $(C++FLAGS) ;
+
+	# When building the code with VS2017 or higher, assume we're
+	# not targetting WinXP or below - or in other words, enable
+	# Windows APIs available in Win7+.  0x0501 is defined in the Jamrules.
+	C++FLAGS = -D_WIN32_WINNT=0x0601 [ FRemoveAny $(C++FLAGS) : -D_WIN32_WINNT=0x0501 ] ;
+	 CCFLAGS = -D_WIN32_WINNT=0x0601 [ FRemoveAny  $(CCFLAGS) : -D_WIN32_WINNT=0x0501 ] ;
+}
+
+if $(OS) = NT && [ FVersionCmp $(MSVSVER) : 15 ] < 0
+{
+	# Suppress harmless warnings about empty archive files.  This warning
+	# does not appear in VS2017+.
+	# Note that this won't work unless it's global.
+	AR = $(AR) /ignore:4221 ;
+}
+
+if $(WIN32_WINNT)
+{
+	C++FLAGS = -D_WIN32_WINNT=$(WIN32_WINNT) [ FRemoveAny $(C++FLAGS) : -D_WIN32_WINNT=0x0501 ] ;
+	 CCFLAGS = -D_WIN32_WINNT=$(WIN32_WINNT) [ FRemoveAny  $(CCFLAGS) : -D_WIN32_WINNT=0x0501 ] ;
+}
+
+if $(BUILD) = "valgrind"
+{
+	C++FLAGS += -DHAS_VALGRIND ;
+	CCFLAGS += -DHAS_VALGRIND ;
+}
+
+BUILD_RESTLIB ?= 0 ;
+
+if $(BUILD_RESTLIB) = 1
+{
+	DEFINES += HAS_RUST ;
+}
+
+if $(OS) = NT
+{
+	C++FLAGS += /EHsc ;
+
+	# For Extensions, libcURL
+	C++FLAGS += /DCURL_STATICLIB ;
+}
+else
+{
+	C++FLAGS += -DCURL_STATICLIB ;
+}
+
+EnableWarningsAsErrors ;
+
+if $(GCCVER) && [ FVersionCmp $(GCCVER) : 8.0.0 ] >= 0 || $(CLANGVER)
+{
+	C++FLAGS += -Wdangling-else -Wdelete-non-virtual-dtor -Wunknown-pragmas
+	            -Wreorder -Wparentheses -Wmissing-braces -Wunused -Wunused-result ;
+	CCFLAGS += -Wparentheses -Wmissing-braces -Wunused -Wunused-result ;
+}
+
+if $(GCCVER) && [ FVersionCmp $(GCCVER) : 9.0.0 ] >= 0 || $(CLANGVER)
+{
+	C++FLAGS += -Wpessimizing-move -Wredundant-move ;
+}
+
+if $(GCCVER) && [ FVersionCmp $(GCCVER) : 8.0.0 ] >= 0
+{
+	# GCC-specific warnings
+	C++FLAGS += -Wclass-memaccess ;
+}
+
+if $(OS) = NT && $(MSVSVER)
+{
+	C++FLAGS += /W2 ;
+}
+
+if $(USE_OPTIMIZED_ZLIB) != 0 && $(USE_OPTIMIZED_ZLIB) != 1
+{
+	if ( $(OSPLAT) = X86_64 || $(OSPLAT) = X64 ) && [ CompilerSupportsZlibOptim ] = 1
+	{
+	    USE_OPTIMIZED_ZLIB  = 1 ;
+	    DEFINES += USE_OPTIMIZED_ZLIB ;
+	}
+}
+
+if [ CompilerIsModern ] = 1 && $(OS) != "MINGW" && $(OSPLAT:U) != "X86"
+{
+	USE_CDC = 1 ;
+	DEFINES += USE_CDC ;
+}
+
+if $(OTLPLIBDIR) && $(OTLPINCDIR)
+{
+	USE_OTEL = 1 ;
+	DEFINES += USE_OTEL ;
+}
+
+if $(MALLOC_OVERRIDE) = yes
+{
+	DEFINES += MALLOC_OVERRIDE ;
+
+	if $(USE_MIMALLOC) = yes
+	{
+	    DEFINES += USE_MIMALLOC ;
+	    local _inc = -I $(P4) $(SLASH) mem $(SLASH) mimalloc ;
+	    C++FLAGS += $(_inc:J) ;
+	     CCFLAGS += $(_inc:J) ;
+	    SubInclude P4 mem mimalloc ;
+	}
+
+	if $(USE_JEMALLOC) = yes
+	{
+	    DEFINES += USE_JEMALLOC ;
+
+	    local _a = -I $(P4) $(SLASH) mem $(SLASH) jemalloc $(SLASH) $(OS:L) $(OSVER:L) $(OSPLAT:L) ;
+	    local _b = -I $(P4) $(SLASH) mem $(SLASH) jemalloc $(SLASH) $(OS:L) $(OSVER:L) $(OSPLAT:L)
+	                  $(SLASH) jemalloc ;
+	    local _c ;
+
+	    if $(OS) = NT
+	    {
+	        _c = -I $(P4) $(SLASH) mem $(SLASH) jemalloc $(SLASH) $(OS:L) $(OSVER:L) $(OSPLAT:L)
+	                $(SLASH) jemalloc $(SLASH) msvc_compat ;
+	    }
+
+	    local _incs = $(_a:J) $(_b:J) $(_c:J) ;
+	    C++FLAGS += $(_incs) ;
+	    CCFLAGS += $(_incs) ;
+	    SubInclude P4 mem jemalloc ;
+	}
+
+	if $(USE_RPMALLOC) = yes
+	{
+	    DEFINES += USE_RPMALLOC ;
+	    local _inc = -I $(P4) $(SLASH) mem $(SLASH) rpmalloc ;
+	    C++FLAGS += $(_inc:J) ;
+	     CCFLAGS += $(_inc:J) ;
+	    SubInclude P4 mem rpmalloc ;
+	}
+
+	if $(USE_SMARTHEAP) = yes
+	{
+	    DEFINES += USE_SMARTHEAP ;
+
+	    if $(MEM_DEBUG) = yes
+	    {
+	        DEFINES += MEM_DEBUG=1 DEFINE_NEW_MACRO=1 ;
+	    }
+	    if $(SMARTHEAP_CHECKS) != 0
+	    {
+	        DEFINES += SMARTHEAP_CHECKS=$(SMARTHEAP_CHECKS) ;
+	        DEFINES += MEM_DEBUG=1 DEFINE_NEW_MACRO=1 ;
+	    }
+	}
+}
+
+SubInclude P4 auth ;
+SubInclude P4 client ;
+SubInclude P4 db ;
+SubInclude P4 dbpipe ;
+SubInclude P4 dbsupp ;
+SubInclude P4 dbopen2 ;
+SubInclude P4 diff ;
+SubInclude P4 dm ;
+SubInclude P4 dma ;
+SubInclude P4 dmc ;
+SubInclude P4 dme ;
+SubInclude P4 dmec ;
+SubInclude P4 dmes ;
+SubInclude P4 dmi ;
+SubInclude P4 dml ;
+SubInclude P4 dmobj ;
+SubInclude P4 dmp ;
+SubInclude P4 dmr ;
+SubInclude P4 dmrpc ;
+SubInclude P4 dms ;
+SubInclude P4 dmx ;
+SubInclude P4 i18n ;
+SubInclude P4 jsmn ;
+SubInclude P4 lbr ;
+SubInclude P4 lbrobj ;
+SubInclude P4 map ;
+SubInclude P4 misc p4mon-exporter ;
+SubInclude P4 msgs ;
+SubInclude P4 net ;
+SubInclude P4 script ;
+SubInclude P4 proxy ;
+SubInclude P4 rcs ;
+SubInclude P4 rest ;
+SubInclude P4 rpc ;
+SubInclude P4 server ;
+SubInclude P4 sslstub ;
+SubInclude P4 support ;
+SubInclude P4 sys ;
+SubInclude P4 web ;
+SubInclude P4 zlib ;
+
+SubInclude P4 broker ; # Must be after db
+
+if $(X3) = yes { SubInclude P4 xfer3rd ; }
+
+if $(USE_CDC) = 1 { SubInclude P4 blake3 ; }
+
+if $(PRODUCTION) { API ?= x ; }
+
+if $(API) { SubInclude P4 api ; }
+if $(TESTS) { SubInclude P4 tests ; }

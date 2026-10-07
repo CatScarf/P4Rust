@@ -2,13 +2,28 @@
 
 use std::ffi::{c_char, c_void};
 
-pub const ABI_VERSION: u32 = 1;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use p4rust_resources_aarch64_apple_darwin as resources;
+#[cfg(all(target_os = "windows", target_arch = "aarch64", target_env = "msvc"))]
+use p4rust_resources_aarch64_pc_windows_msvc as resources;
+#[cfg(all(target_os = "linux", target_arch = "aarch64", target_env = "gnu"))]
+use p4rust_resources_aarch64_unknown_linux_gnu as resources;
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+use p4rust_resources_x86_64_apple_darwin as resources;
+#[cfg(all(target_os = "windows", target_arch = "x86_64", target_env = "msvc"))]
+use p4rust_resources_x86_64_pc_windows_msvc as resources;
+#[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+use p4rust_resources_x86_64_unknown_linux_gnu as resources;
+
+pub const ABI_VERSION: u32 = resources::ABI_VERSION;
 pub const TEXT: u32 = 1;
 pub const BINARY: u32 = 2;
 pub const RECORD: u32 = 3;
 pub const FIELD: u32 = 4;
 pub const WARNING: u32 = 5;
 pub const ERROR: u32 = 6;
+pub const RECORD_END: u32 = 7;
+pub const PROGRESS: u32 = 8;
 
 pub type Callback =
     unsafe extern "C" fn(*mut c_void, u32, *const u8, usize, *const u8, usize) -> i32;

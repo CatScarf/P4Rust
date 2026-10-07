@@ -1,0 +1,13 @@
+SubDir P4 script libs LuaSQLite3 ;
+
+SubDirHdrs $(P4) script libs sqlite3 ;
+
+local C++FLAGS = [ FRemoveAny $(C++FLAGS) : /W2 -Wunused ] ;
+
+P4APILibrary $(P4SCRIPT_SQLITE) : lsqlite3.cc ;
+
+ObjectC++Flags lsqlite3.cc : -I $(P4)/script/lua-5.3 ;
+ObjectC++Flags lsqlite3.cc : -I $(P4)/script/ ;
+# The version should be "0.9.5", but getting that past Jam and shell quoting
+# hasn't worked.
+#ObjectDefines  lsqlite3.cc : LSQLITE_VERSION=95 ;

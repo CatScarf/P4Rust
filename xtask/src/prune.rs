@@ -79,18 +79,122 @@ impl Prune {
             .compiler()
             .try_get_compiler()
             .context("Failed to locate MSVC pruning toolchain")?;
-        Runner::run(
-            Command::new("pwsh")
-                .args(["-NoProfile", "-File"])
-                .arg(root.join("xtask/scripts/prune-native.ps1"))
-                .arg("-LibraryDirectory")
-                .arg(staging)
-                .arg("-Objcopy")
-                .arg(Platform::utility("P4RUST_OBJCOPY", "llvm-objcopy"))
+        let _ = root;
+        let names = [
+            "p4rust_bridge",
+            "libclient",
+            "libp4script_cstub",
+            "librpc",
+            "libsupp",
+            "libssl",
+            "libcrypto",
+        ];
+        for name in names {
+            let source = staging.join(format!("{name}.lib"));
+            let stripped = staging.join(format!("{name}-stripped.lib"));
+            Self::command(
+                Command::new(Platform::utility("P4RUST_OBJCOPY", "llvm-objcopy"))
+                    .arg("--strip-debug")
+                    .arg(&source)
+                    .arg(&stripped),
+            )
+            .context("Failed to strip COFF debug records")?;
+            fs::copy(stripped, source).context("Failed to install stripped COFF library")?;
+        }
+        let trace =
+            Self::coff_probe(staging, &tool).context("Failed to trace COFF dependencies")?;
+        fs::write(staging.join("dependency-trace.txt"), &trace)
+            .context("Failed to preserve COFF trace")?;
+        for name in ["libclient", "libp4script_cstub", "librpc", "libsupp"] {
+            Self::coff_compact(staging, name, &trace, &tool)
+                .context("Failed to compact COFF library")?;
+        }
+        Self::coff_probe(staging, &tool).context("Failed to relink compact COFF libraries")?;
+        Ok(())
+    }
+
+    // Link every ABI export without dropping cold paths or starting a native executable.
+    fn coff_probe(staging: &Path, tool: &cc::Tool) -> Result<String> {
+        let mut command = Command::new("link.exe");
+        command
+            .envs(tool.env().iter().cloned())
+            .env("VSLANG", "1033")
+            .args([
+                "/NOLOGO",
+                "/DLL",
+                "/INCREMENTAL:NO",
+                "/OPT:NOREF",
+                "/VERBOSE",
+                "/EXPORT:p4rust_abi_version",
+                "/EXPORT:p4rust_execute_v1",
+                "/EXPORT:p4rust_execute_controlled_v1",
+            ])
+            .arg(format!(
+                "/OUT:{}",
+                staging.join("dependency-probe.dll").display()
+            ))
+            .arg(format!("/LIBPATH:{}", staging.display()));
+        for name in [
+            "p4rust_bridge",
+            "libclient",
+            "libp4script_cstub",
+            "librpc",
+            "libsupp",
+            "libssl",
+            "libcrypto",
+            "ws2_32",
+            "advapi32",
+            "crypt32",
+            "user32",
+            "shell32",
+            "ole32",
+            "oleaut32",
+            "gdi32",
+            "bcrypt",
+            "iphlpapi",
+        ] {
+            command.arg(format!("{name}.lib"));
+        }
+        Self::command(&mut command).context("Failed to link COFF dependency probe")
+    }
+
+    // Remove unreachable COFF members using a response file for long archive paths.
+    fn coff_compact(staging: &Path, name: &str, trace: &str, tool: &cc::Tool) -> Result<()> {
+        let source = staging.join(format!("{name}.lib"));
+        let output = staging.join(format!("{name}-pruned.lib"));
+        let required = Self::members(trace, &format!("{name}.lib"));
+        ensure!(
+            !required.is_empty(),
+            "Failed to find reachable COFF members: {name}"
+        );
+        let entries = Self::command(
+            Command::new("lib.exe")
+                .args(["/NOLOGO", "/LIST"])
+                .arg(&source)
                 .envs(tool.env().iter().cloned()),
-            false,
         )
-        .context("Failed to start MSVC pruning")?;
+        .context("Failed to enumerate COFF library")?;
+        let mut args = vec![
+            "/NOLOGO".to_owned(),
+            "/BREPRO".to_owned(),
+            format!("\"/OUT:{}\"", output.display()),
+            format!("\"{}\"", source.display()),
+        ];
+        for member in entries
+            .lines()
+            .filter(|member| !required.contains(Self::basename(member)))
+        {
+            args.push(format!("\"/REMOVE:{}\"", member.trim()));
+        }
+        let response = staging.join(format!("{name}-prune.rsp"));
+        fs::write(&response, args.join("\n")).context("Failed to write COFF response file")?;
+        Self::command(
+            Command::new("lib.exe")
+                .arg(format!("@{}", response.display()))
+                .envs(tool.env().iter().cloned()),
+        )
+        .context("Failed to prune COFF library")?;
+        fs::copy(output, source).context("Failed to install compact COFF library")?;
         Ok(())
     }
 
@@ -131,6 +235,8 @@ impl Prune {
                     "Security",
                     "-framework",
                     "Foundation",
+                    "-framework",
+                    "SystemConfiguration",
                 ]);
         } else {
             command
@@ -139,7 +245,7 @@ impl Prune {
                 .arg("-Wl,--start-group")
                 .args(libraries)
                 .arg("-Wl,--end-group")
-                .args(["-pthread", "-ldl", "-lresolv"]);
+                .args(["-pthread", "-ldl", "-lresolv", "-lrt", "-lm"]);
         }
         let output =
             Runner::run(&mut command, true).context("Failed to link ABI dependency probe")?;

@@ -1,14 +1,7 @@
-# Vendor Notices
+# Vendor notices
 
-The headers and native archives in this directory originate from Perforce's
-official P4 C/C++ API 2025.2 distribution. Copyright notices in the retained
-headers are preserved. The binding's own license does not replace or grant
-rights to the vendor components.
+Perforce API sources originate from the official 2026.1.3062361 source distribution at <https://ftp.perforce.com/perforce/r26.1/bin.tools/p4source.tgz>. The complete source license is retained in `LICENSE` and copied into every packaged resource crate. Source copyright notices remain intact.
 
-The downloaded archives contain no standalone file named LICENSE, COPYING,
-or NOTICE. This file records provenance; it is not a new license or a statement
-that public redistribution is authorized. Consult the applicable Perforce terms
-for use and redistribution of the vendor components.
+Jam 2.6 originates from <https://swarm.workshop.perforce.com/downloads/guest/perforce_software/jam/jam-2.6.zip>. Its source tree includes the vendor license. Build-time modifications to vendor rules and the Jam command limit are marked in the extracted cache.
 
-See `manifest.json` for the exact download locations and checksums. The official
-release directory is <https://ftp.perforce.com/perforce/r25.2/>.
+`sources.json` records exact upstream and source-file checksums. OpenSSL uses the pinned `openssl-src` dependency and its Apache 2.0 license, retained at `native/OPENSSL-LICENSE.txt` and included in every resource crate.

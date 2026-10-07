@@ -1,0 +1,155 @@
+SubDir P4 zlib ;
+
+local CCFLAGS = $(CCFLAGS) [ FDefines Z_PREFIX ] ;
+CCFLAGS = [ FRemoveAny $(CCFLAGS) : -Wparentheses ] ;
+
+if $(OS) != NT
+{
+	CCFLAGS += -Wno-unused-variable ;
+}
+
+if $(CLANGVER)
+{
+	CCFLAGS += -Wno-pointer-sign ;
+
+	if [ FVersionCmp $(CLANGVER) : 17.0.0 ] >= 0
+	{
+	    CCFLAGS += -Wno-deprecated-non-prototype ;
+	}
+}
+
+if $(GCCVER) && [ FVersionCmp $(GCCVER) : 15.1.0 ] >= 0
+{
+	CCFLAGS += -Wno-old-style-definition ;
+}
+
+P4APILibrary $(SUPPORTLIB) : 
+	adler32.c
+	crc32.c
+	inffast.c
+	inftrees.c
+	trees.c
+	zutil.c 
+	;
+
+if $(USE_OPTIMIZED_ZLIB) = 1
+{
+	if $(OS) != NT
+	{
+	    CCFLAGS += -mpclmul ;
+
+	    if $(OSPLAT) != ARM64
+	    {
+	        # Clang/ARM64 doesn't know this.
+	        CCFLAGS += -msse4.2 ;
+	    }
+	}
+
+	# -mno-sse4.1 (below, on inflate-opt.c and deflate.c) must only be added on
+	# the exact same builds where -msse4.2 was added above: it is a GCC/Clang
+	# x86-only flag, and passing it on NT (MSVC) or ARM64 - where -msse4.2 was
+	# never added - would not be understood by the compiler.
+	local ADD_NO_SSE41 = ;
+	if $(OS) != NT && $(OSPLAT) != ARM64
+	{
+	    ADD_NO_SSE41 = 1 ;
+	}
+
+	P4APILibrary $(SUPPORTLIB) : 
+	    adler32_simd.c
+	    crc_folding.c
+	    crc32_simd.c
+	    deflate-opt.c
+	    inffast_chunk.c
+	    inflate-opt.c
+	    x86.c
+	;
+
+
+	if $(OSPLAT) != ARM64
+	{
+	    P4APILibrary $(SUPPORTLIB) :
+	        deflate.c ;
+
+	    ObjectDefines deflate.c : NO_SIMD ;
+
+	    if $(ADD_NO_SSE41) = 1
+	    {
+	        # See P4-27977: deflate.c is the "no SIMD available" fallback, but
+	        # it is still compiled with the file-wide -msse4.2/-mpclmul added
+	        # above, so GCC is free to auto-vectorize its plain scalar stores
+	        # into SSE4.1 instructions (e.g. pinsrd in deflateInit2__nosimd).
+	        # Those are unsafe on exactly the CPUs this fallback exists for.
+	        # Cap this file's codegen at no-SSE4.1; ObjectCcFlags scopes the
+	        # flag to this object only, so it does not affect the other files
+	        # in this Jamfile's shared CCFLAGS.
+	        ObjectCcFlags deflate.c : -mno-sse4.1 ;
+	    }
+	}
+
+
+	{
+	    local _s ;
+	    local _t ;
+	    local _extra = inffast_chunk_nossse ;
+
+	    _t =  [ FGristFiles $(_extra:S=$(SUFOBJ)) ] ;
+	    _s = [ FGristFiles inffast_chunk.c ] ;
+	    if $(OS) != NT
+	    {
+	        CCFLAGS += -mno-ssse3 ;
+	    }
+	    Object $(_t) : $(_s) ;
+	    MakeLocateWithSubDirectory $(_t) : [ FDirName $(LOCATE_SOURCE[1]) objects $(SUBDIR_TOKENS) ] ;            
+	    ObjectDefines $(_t) : INFLATE_CHUNK_SIMD_SSE2 INFLATE_CHUNK_READ_64LE FAST_CHUNK_NOSSSE3 ;
+	    local NOARUPDATE = true ;
+	    LibraryFromObjects $(SUPPORTLIB) : $(_t) ;
+	    LibraryFromObjects $(P4APILIB) : $(_t) ;
+	}
+
+	ObjectDefines adler32.c : ADLER32_SIMD_SSSE3 ;
+	ObjectDefines adler32_simd.c : ADLER32_SIMD_SSSE3 INFLATE_CHUNK_SIMD_SSE2 ;
+
+	if $(ADD_NO_SSE41) = 1
+	{
+	    # See P4-27977: adler32_simd.c is dispatched from adler32.c purely on
+	    # an SSSE3 check (x86_cpu_enable_ssse3) - there is no SSE4.1 gate
+	    # anywhere in x86.c - yet it is compiled with the file-wide
+	    # -msse4.2/-mpclmul above, same as the three functions already fixed
+	    # in this CL. It contains only hand-written SSSE3 intrinsics, so it
+	    # has no legitimate need for SSE4.1 codegen; capping it here closes
+	    # off the same class of risk pre-emptively on a CPU with SSSE3 but
+	    # not SSE4.1 (e.g. early Core-generation parts), even though no
+	    # SSE4.1 instruction has been observed in this object with the
+	    # current compiler.
+	    ObjectCcFlags adler32_simd.c : -mno-sse4.1 ;
+	}
+
+	ObjectDefines crc32.c : CRC32_SIMD_SSE42_PCLMUL ;
+	ObjectDefines crc32_simd.c : CRC32_SIMD_SSE42_PCLMUL ;
+	ObjectDefines inflate-opt.c : INFLATE_CHUNK_SIMD_SSE2 INFLATE_CHUNK_READ_64LE ;
+
+	if $(ADD_NO_SSE41) = 1
+	{
+	    # See P4-27977: fixedtables() and updatewindow() are compiled once in
+	    # this file but are also reachable from the inflate_nossse3 fallback
+	    # path (inffast_chunk.c), which runs on CPUs without SSSE3/SSE4.1.
+	    # With the file-wide -msse4.2/-mpclmul above, GCC auto-vectorizes
+	    # their plain adjacent-field stores into SSE4.1 instructions
+	    # (pinsrq/pinsrd), which SIGILL on such CPUs. Cap this file's codegen
+	    # at no-SSE4.1; ObjectCcFlags scopes the flag to this object only, so
+	    # it does not affect the other files in this Jamfile's shared
+	    # CCFLAGS.
+	    ObjectCcFlags inflate-opt.c : -mno-sse4.1 ;
+	}
+
+	ObjectDefines inffast_chunk.c : INFLATE_CHUNK_SIMD_SSE2 INFLATE_CHUNK_READ_64LE ;
+}
+else
+{
+	P4APILibrary $(SUPPORTLIB) : 
+	    deflate.c
+	    inflate.c
+	    simd_stub.c
+	;
+}

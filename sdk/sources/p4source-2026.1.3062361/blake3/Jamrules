@@ -1,0 +1,36 @@
+# Need a custom UserObject rule to map the *.S files to the As action.
+# The files must be capital 'S' vs lower-case, otherwise they won't
+# build.  The 'S' indicates to the assembler that the files must be
+# first run through the C preprocessor.  It'd be possible to set this
+# up in Jam and then not need this UserObject, if necessary,
+
+rule UserObject
+{
+	switch $(>)
+	{
+	    case *.S   : As $(<) : $(>) ;
+	    case *     : ECHO "unknown suffix on" $(>) ;
+	}
+}
+
+if $(OS) = NT
+{
+	# Need a custom As on Windows since ml64 these days doesn't
+	# recognize the default Jambase '/Ml /p /v /w2' flags.
+
+	actions As
+	{
+	    ml64 /nologo /c /Fo$(<) $(>)
+	}
+}
+else
+{
+	# Need a custom As on unix because 'as' doesn't understand
+	# the content of the BLAKE3 *.S files, and the AS variable
+	# can't be overwritten in the Jam files.
+
+	actions As
+	{
+	    $(CC) $(CCFLAGS) -c -o $(<) $(>)
+	}
+}

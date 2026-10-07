@@ -1,0 +1,58 @@
+SubDir P4 script lua-5.3 ;
+
+local CCFLAGS = [ FRemoveAny $(CCFLAGS) : -Wunused ] ;
+local C++FLAGS = [ C++FLAGS+STD $(C++_VERSION_MAX) ] ;
+C++FLAGS = [ FRemoveAny $(C++FLAGS) : -Wmissing-braces -Wunused ] ;
+
+if $(CLANGVER) || $(OSCOMP:U) = "XC"
+{
+	# lundump.c:237
+	C++FLAGS += -Wno-string-plus-int ;
+}
+
+local posix ;
+
+if $(UNIX)
+{
+	posix = LUA_USE_POSIX ;
+}
+
+local one_luac = one_luac ;
+local one_luac_obj =  [ FGristFiles $(one_luac:S=$(SUFOBJ)) ] ;
+local one_lua = one_lua ;
+local one_lua_obj =  [ FGristFiles $(one_lua:S=$(SUFOBJ)) ] ;
+local one = [ FGristFiles one.cc ] ;
+
+Object $(one_lua_obj) : $(one) ;
+ObjectDefines $(one_lua_obj) : MAKE_LUA $(posix) ;
+
+Object $(one_luac_obj) : $(one) ;
+ObjectDefines $(one_luac_obj) : MAKE_LUAC ;
+
+MakeLocateWithSubDirectory $(one_lua_obj) : [ FDirName $(LOCATE_SOURCE[1]) objects $(SUBDIR_TOKENS) ] ;
+MakeLocateWithSubDirectory $(one_luac_obj) : [ FDirName $(LOCATE_SOURCE[1]) objects $(SUBDIR_TOKENS) ] ;
+
+LinkPthread lua ;
+LinkPthread luac ;
+
+LINKLIBS on lua$(SUFEXE) += $(LINKLIBS) ;
+if ! $(GLOBLINKOBJ) in $(LINKLIBS) && $(OS) = NT
+{
+	LINKLIBS on lua$(SUFEXE) += $(GLOBLINKOBJ) ;
+}
+
+LINKLIBS on luac$(SUFEXE) += $(LINKLIBS) ;
+if ! $(GLOBLINKOBJ) in $(LINKLIBS) && $(OS) = NT
+{
+	LINKLIBS on luac$(SUFEXE) += $(GLOBLINKOBJ) ;
+}
+
+if $(CLANGVER)
+{
+	# E.g. for a TYPE=clang-asan build.
+	OnTargetVarDelete lua$(SUFEXE) : LINKLIBS : -lsupc++ ;
+	OnTargetVarDelete luac$(SUFEXE) : LINKLIBS : -lsupc++ ;
+}
+
+MainFromObjects lua : $(one_lua_obj) ;
+MainFromObjects luac : $(one_luac_obj) ;

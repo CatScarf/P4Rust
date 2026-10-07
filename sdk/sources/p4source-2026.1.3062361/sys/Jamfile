@@ -1,0 +1,132 @@
+SubDir P4 sys ;
+
+SubDirC++Flags [ FDefines Z_PREFIX ] ;
+SubDirCcFlags [ FDefines Z_PREFIX ] ;
+
+SubDirHdrs $(P4) zlib ;
+SubDirHdrs $(P4) i18n ;
+
+ObjectC++Flags threading.cc : -I$(SSLINCDIR) ;
+
+if $(CLANGVER) && [ FVersionCmp $(CLANGVER) : 15 ] >= 0
+{
+	ObjectCCFlags ioapi.c : -Wno-deprecated-non-prototype ;
+}
+
+P4APILibrary $(SUPPORTLIB) : 
+	applefork.cc
+	echoctl.cc
+	enviro.cc
+	errorlog.cc
+	fblreader.cc
+	filecheck.cc
+	filegen.cc
+	filedirs.cc
+	fileio.cc
+	fileiobuf.cc
+	fileiosym.cc
+	fileiouni.cc
+	fileiozip.cc
+	filemkdir.cc
+	fileopt.cc
+	filespace.cc
+	filestrbuf.cc
+	filesys.cc
+        filetar.cc
+	filetmp.cc
+	hostcfg.cc
+	hostenv.cc
+	fdutil.cc
+	memfile.cc
+	monitem.cc
+	microthread.cc
+	pathmac.cc
+	pathnt.cc
+	pathunix.cc
+	pathsys.cc
+	pathvms.cc
+	pid.cc
+	pipeio.cc
+	pressuremonitor.cc
+	proc_utils.cc
+	readfile.cc
+	resvmem.cc
+	runcmd.cc
+	rusage.cc
+	signaler.cc 
+	stdhdrs.cc
+	sysinfo.cc
+	sysinfo-resource.cc
+	threading.cc
+	timer.cc
+	zfilestream.cc
+	zipfile.cc
+	zlinflater.cc
+	zlmeminflater.cc
+	unzip.c
+	zip.c
+	gzip.cc
+	ioapi.c
+	;
+
+if $(USE_MIMALLOC) = yes
+{
+	P4Library $(P4MEMORYMGR) : mihandler.cc ;
+}
+
+if $(USE_SMARTHEAP) = yes
+{
+	P4Library $(SUPPORTLIB) : shhandler.cc ;
+}
+else
+{
+	P4Library $(SHSTUBLIB) : shstub.cc ;
+}
+
+if $(OS) = MACOSX && [ FVersionCmp $(OSVERLONG) : 1010 ] = -1
+{
+	P4APILibrary $(SUPPORTLIB) : 
+		macfile.cc
+		fileioappm.cc
+		fileiomac.cc
+		macutil.m
+		;
+}
+else
+{
+	P4APILibrary $(SUPPORTLIB) :
+		fileioapp.cc ;
+	
+	if $(OS) = MACOSX
+	{
+		P4APILibrary $(SUPPORTLIB) :
+			macutil.m ;
+	}
+}
+
+if $(OS) = NT || $(OS) = MINGW || $(OS) = MINGW64
+{
+	P4APILibrary $(SUPPORTLIB) : 
+		fileiont.cc
+		fileiont2.cc
+		ntmangle.cc
+		nterror.cc
+		ntinvargs.cc
+		ntservice.cc
+		ntthdlist.cc
+		runshell.cc ;
+}
+
+if $(OS) = VMS
+{
+	P4APILibrary $(SUPPORTLIB) :
+		fileiovms.cc ;
+}
+
+P4Library $(P4MEMORYMGR) : 
+	malloc_utils.cc
+	;
+
+P4Library $(P4MEMORYMGR_STUB) : 
+	memory_manager_stub.cc
+	;

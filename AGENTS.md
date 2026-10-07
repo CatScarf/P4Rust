@@ -6,10 +6,10 @@
 
 ## Rust
 
-- Maintain only 64-bit targets. Do not add 32-bit SDKs or native release packages.
+- Maintain six 64-bit targets: Windows MSVC, Linux GNU, and macOS, each on x64 and ARM64. Do not add 32-bit SDKs or native release packages.
 - Build optimized native static libraries, strip debug symbols, disable unused OpenSSL features, and retain only archive members in the bridge's transitive symbol dependency closure.
 - Preserve supported behavior and keep every compressed distributable `.crate` strictly below 10 MB (10,000,000 bytes).
-- After modifying Rust code, run `cargo clippy --workspace --all-targets --all-features -- -D warnings` and fix every reported issue.
+- Validate compilation and `cargo clippy --workspace --all-targets --all-features -- -D warnings` through GitHub Actions. Do not build locally. Keep all test code and test steps absent.
 - Never use `unwrap`. Propagate unexpected errors and never discard them. Add operation-specific context at every propagation boundary, for example `Failed to connect: <inner error>`, so the error chain identifies each failed operation. Use `unwrap_or` only for expected fallback cases.
 - When a single `use` imports more than five functions, variables, or types, import their parent module instead and access items through `::`.
 
@@ -26,6 +26,8 @@
 
 - Commit only when explicitly requested. Review diffs, staged files, and untracked files before committing.
 - Use a single-line English commit message. Push after a requested commit if a remote exists.
-- Commit the bundled Perforce C++ SDK under `sdk/`, including its headers, required libraries, and license notices. SDK `.tar.zst` archives may exceed 1 MiB; extracted `sdk/lib/` files must remain ignored.
-- Do not track precompiled bridge or native release libraries. `xtask` generates `native/lib/` locally and includes them only in the distributable crate.
+- Keep expanded Perforce and Jam sources, checksums, and license notices under `sdk/`. Split vendor files larger than 1 MiB into plain fragments and reconstruct them in the ignored build tree. Preserve vendor code and license text; project formatting and comment rules apply to maintained binding code.
+- Do not track precompiled native libraries. `xtask` builds the SDK and bridge, then installs libraries into six platform resource crates. Consumers compile only Rust. Keep YAML thin and log every external command through the shared executor.
 - Do not commit other files larger than 1 MiB, build outputs, caches, or temporary files.
+
+- Do not track PowerShell, Python, shell, or other executable scripts. Implement build, dependency, packaging, and release operations in Rust xtask.

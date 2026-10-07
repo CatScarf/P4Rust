@@ -1,0 +1,207 @@
+SubDir P4 api ;
+
+SubDir $(P4) ;			# just for Jamrules
+SubDirHdrs $(P4) client ;
+SubDirHdrs $(P4) diff ;
+SubDirHdrs $(P4) dme ;
+SubDirHdrs $(P4) dmec ;
+SubDirHdrs $(P4) rpc ;
+SubDirHdrs $(P4) i18n ;
+SubDirHdrs $(P4) sys ;
+SubDirHdrs $(P4) net ;		# just for API
+SubDirHdrs $(P4) tests ;	# just for API
+SubDirHdrs $(P4) web ;
+
+# API: libs and src
+
+P4Api p4api : 
+
+	Jamrules
+	Version
+
+	Jamfile.api
+
+	# all-in-one lib (with extensions)
+	$(P4APILIB)
+
+	# individual libs (in link order)
+	$(CLIENTLIB)
+	$(RPCLIB)
+	# begin extension support
+	$(P4SCRIPT_C)
+	$(P4SCRIPT)
+	$(P4SCRIPT_CURL)
+	$(P4SCRIPT_SQLITE)
+	# or extensions stub
+	$(P4SCRIPT_CSTUB)
+	# end extensions libs
+	$(SUPPORTLIB)
+
+	base64.h
+	charcvt.h
+	charman.h
+	charset.h
+	clientapi.h
+	clientmerge.h
+	clientprog.h
+	clientresolvea.h
+	clientscript.h
+	clientuser.h
+	datetime.h
+	debug.h
+	diff.h
+	diffmerge.h
+	dmextension.h
+	dmextension_c.h
+	dmextensiondata_c.h
+	dmextensiondata.h
+	echoctl.h
+	enviro.h
+	error.h
+	errorlog.h
+	errornum.h
+	filesys.h
+	handler.h
+	hostenv.h
+	i18napi.h
+	ident.h
+	ignore.h
+	keepalive.h
+	macfile.h
+	macutil.h
+	malloc_override.h
+	mangle.h
+	mapapi.h
+	md5.h
+	msgclient.h
+	msgdb.h
+	msgdm.h
+	msgdm2.h
+	msggraph.h
+	msghelp.h
+	msglbr.h
+	msgos.h
+	msgrpc.h
+	msgscript.h
+	msgserver.h
+	msgserver2.h
+	msgspec.h
+	msgsupp.h
+	netbuffer.h
+	netconnect.h
+	netportparser.h
+	ntmangle.h
+	ntservice.h
+	options.h
+	p4libs.h
+	p4tags.h
+	pathsys.h
+	runcmd.h
+	sanitizers.h
+	serverhelperapi.h
+	sha1.h
+	sha256.h
+	signaler.h
+	spec.h
+	stdhdrs.h
+	strarray.h
+	strbuf.h
+	strdict.h
+	strops.h
+	strtable.h
+	strxml.h
+	threading.h
+	ticket.h
+	validate.h
+	vararray.h
+	web822.h
+
+	clientuser.cc
+	p4api.cc
+	p4dvcsapi.cc
+	;
+
+# Just to make sure the API builds
+
+Depends p4api :
+	p4api-classic
+	p4api-noscript
+	p4api-modern
+	;
+
+LINK_WITH_STDC++ += p4api-classic p4api-noscript p4api-modern ;
+
+P4Main p4api-classic : p4api.cc ;
+P4Main p4api-noscript : p4api.cc ;
+P4Main p4api-modern : p4api.cc ;
+
+LinkLibraries p4api-classic :
+	$(CLIENTLIB)
+	$(RPCLIB)
+	$(P4SCRIPT_C)
+	$(P4SCRIPT)
+	$(P4SCRIPT_CURL)
+	$(P4SCRIPT_SQLITE)
+	$(SUPPORTLIB)
+	;
+
+LinkLibraries p4api-noscript :
+	$(CLIENTLIB)
+	$(RPCLIB)
+	$(P4SCRIPT_CSTUB)
+	$(SUPPORTLIB)
+	;
+
+LinkLibraries p4api-modern :
+	$(P4APILIB)
+	;
+
+LinkMallocLib p4api-classic ;
+LinkMallocLib p4api-noscript ;
+LinkMallocLib p4api-modern ;
+
+LinkPthread p4api-classic ;
+LinkPthread p4api-noscript ;
+LinkPthread p4api-modern ;
+
+Depends p4dvcsapi :
+	p4dvcsapi-classic
+	p4dvcsapi-noscript
+	p4dvcsapi-modern
+	;
+
+LINK_WITH_STDC++ += p4dvcsapi-classic p4dvcsapi-noscript p4dvcsapi-modern ;
+
+P4Main p4dvcsapi-classic : p4dvcsapi.cc ;
+P4Main p4dvcsapi-noscript : p4dvcsapi.cc ;
+P4Main p4dvcsapi-modern : p4dvcsapi.cc ;
+
+
+LinkLibraries p4dvcsapi-classic :
+	$(CLIENTLIB)
+	$(RPCLIB)
+	$(P4SCRIPT_C)
+	$(P4SCRIPT)
+	$(P4SCRIPT_CURL)
+	$(P4SCRIPT_SQLITE)
+	$(SUPPORTLIB)
+	;
+
+LinkLibraries p4dvcsapi-noscript :
+	$(CLIENTLIB)
+	$(RPCLIB)
+	$(P4SCRIPT_CSTUB)
+	$(SUPPORTLIB)
+	;
+
+LinkLibraries p4dvcsapi-modern :
+	$(P4APILIB)
+	;
+
+LinkMallocLib p4dvcsapi-classic ;
+LinkMallocLib p4dvcsapi-noscript ;
+LinkMallocLib p4dvcsapi-modern ;
+
+LinkPthread p4dvcsapi-classic ;
+LinkPthread p4dvcsapi-noscript ;
+LinkPthread p4dvcsapi-modern ;

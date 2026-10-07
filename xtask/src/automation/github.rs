@@ -23,7 +23,7 @@ impl GitHub {
             .context("Failed to find release crate")?["version"]
             .as_str()
             .context("Failed to read release version")?;
-        Self::bundle(root, version).context("Failed to merge release ZIP")?;
+        super::bundle::Bundle::create(root, version).context("Failed to merge release ZIP")?;
         let repository =
             env::var("GITHUB_REPOSITORY").context("Failed to read release repository")?;
         let sha = env::var("GITHUB_SHA").context("Failed to read release commit")?;
@@ -53,27 +53,6 @@ impl GitHub {
             "--latest",
         ]);
         Self::gh(root, &args, false).context("Failed to publish release metadata")?;
-        Ok(())
-    }
-
-    // Merge the complete platform artifact set using the versioned package layout.
-    fn bundle(root: &Path, version: &str) -> Result<()> {
-        Runner::run(
-            Command::new("pwsh")
-                .args(["-NoProfile", "-File"])
-                .arg(root.join("xtask/scripts/bundle-release.ps1"))
-                .args([
-                    "-Version",
-                    version,
-                    "-InputDirectory",
-                    "temp/release-inputs",
-                    "-OutputDirectory",
-                    "temp/release-output",
-                ])
-                .current_dir(root),
-            false,
-        )
-        .context("Failed to merge platform packages")?;
         Ok(())
     }
 

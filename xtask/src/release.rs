@@ -14,10 +14,12 @@ impl Release {
         output: &Path,
         bridge: &Path,
         ssl: &Path,
+        sdk: &Path,
         platform: &Platform,
     ) -> Result<()> {
         let staging = output.join("release-libraries");
-        let destination = root.join("native/lib").join(&platform.target);
+        let package = root.join("resources").join(&platform.target);
+        let destination = package.join("native");
         fs::create_dir_all(&staging).context("Failed to create release staging directory")?;
         fs::create_dir_all(&destination).context("Failed to create release library directory")?;
         let mut paths = vec![bridge.to_path_buf()];
@@ -28,7 +30,7 @@ impl Release {
             } else {
                 format!("lib{name}.a")
             };
-            paths.push(root.join("sdk/lib").join(&platform.target).join(filename));
+            paths.push(sdk.join(filename));
         }
         let mut libraries = Vec::new();
         for path in &paths {
@@ -52,6 +54,16 @@ impl Release {
             )
             .context("Failed to install compact native archive")?;
         }
+        fs::copy(
+            root.join("sdk/LICENSE"),
+            package.join("PERFORCE-LICENSE.txt"),
+        )
+        .context("Failed to include Perforce source license")?;
+        fs::copy(
+            root.join("native/OPENSSL-LICENSE.txt"),
+            package.join("OPENSSL-LICENSE.txt"),
+        )
+        .context("Failed to include OpenSSL license")?;
         Ok(())
     }
 }

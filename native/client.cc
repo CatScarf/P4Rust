@@ -1,6 +1,11 @@
 #include "client.h"
 #include <clientapi.h>
 #include <p4libs.h>
+#include <clientprog.h>
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <mutex>
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
@@ -69,11 +74,12 @@ public:
 
 class Interrupt final : public KeepAlive {
 public:
+    std::atomic<bool> failed{false};
     p4rust_alive_v1 callback;
     void* context;
 
     // Request disconnection only from the native session's owning thread.
-    int IsAlive() override { return !callback || callback(context) != 0; }
+    int IsAlive() override { return !failed.load() && (!callback || callback(context) != 0); }
 
     // Poll cancellation without imposing the SDK's default half-second delay.
     int PollMs() override { return 50; }
@@ -90,14 +96,17 @@ public:
     void* context;
     std::string input;
     Interrupt* interrupt = nullptr;
+    std::recursive_mutex mutex;
+    std::atomic<int64_t> next_progress{0};
 
     // Copy event bytes to the caller without sharing allocator ownership.
     void Emit(uint32_t event, const char* data = nullptr, size_t length = 0,
               const char* value = nullptr, size_t value_length = 0) {
-        if (interrupt) interrupt->Check();
+        std::lock_guard<std::recursive_mutex> lock(mutex);
+        if (interrupt && !interrupt->IsAlive()) return;
         if (callback(context, event, reinterpret_cast<const uint8_t*>(data), length,
                      reinterpret_cast<const uint8_t*>(value), value_length) != 0)
-            throw std::runtime_error("Failed to collect native output");
+            if (interrupt) interrupt->failed.store(true);
     }
 
     // Supply explicit form input without interactive prompts.
@@ -129,12 +138,25 @@ public:
 
     // Preserve each tagged record and its field order.
     void OutputStat(StrDict* dictionary) override {
+        std::lock_guard<std::recursive_mutex> lock(mutex);
         Emit(P4RUST_RECORD);
         StrRef key, value;
         for (int index = 0; dictionary->GetVar(index, key, value); ++index)
             Emit(P4RUST_FIELD, key.Text(), key.Length(), value.Text(), value.Length());
+        Emit(P4RUST_RECORD_END);
     }
 
+    // Enable SDK progress notifications for ordinary and parallel transfers.
+    int ProgressIndicator() override { return 1; }
+
+    // Allow independent progress objects in parallel transfer workers.
+    int CanParallelProgress() override { return 1; }
+
+    // Construct an owned progress handler with a unique operation identity.
+    ClientProgress* CreateProgress(int type) override;
+
+    // Construct progress metadata with the SDK's supplied transfer size.
+    ClientProgress* CreateProgress(int type, P4INT64 size) override;
     // Separate warning messages from command failures.
     void HandleError(Error* error) override {
         StrBuf message;
@@ -149,6 +171,48 @@ public:
     }
 };
 
+class Progress final : public ClientProgress {
+public:
+    User& user;
+    std::array<int64_t, 7> values;
+    std::string description;
+
+    // Initialize isolated metadata for one SDK progress operation.
+    Progress(User& owner, int type, int64_t total)
+        : user(owner), values{owner.next_progress.fetch_add(1), type, 0, total, 0, 0, 0} {}
+
+    // Publish a bounded description and its SDK measurement unit.
+    void Description(const StrPtr* text, int units) override {
+        description.assign(text->Text(), std::min<size_t>(text->Length(), 16384));
+        values[2] = units;
+        Emit();
+    }
+
+    // Publish the expected amount of work when the SDK supplies it.
+    void Total(long total) override { values[3] = total; Emit(); }
+
+    // Publish completed work and cooperate with cancellation from any SDK worker.
+    int Update(long current) override {
+        values[4] = current;
+        Emit();
+        return user.interrupt && !user.interrupt->IsAlive();
+    }
+
+    // Publish the final progress status without completing the enclosing command.
+    void Done(int fail) override { values[5] = 1; values[6] = fail; Emit(); }
+
+    // Copy fixed-width metadata through the synchronous callback contract.
+    void Emit() {
+        user.Emit(P4RUST_PROGRESS, description.data(), description.size(),
+                  reinterpret_cast<const char*>(values.data()), sizeof(values));
+    }
+};
+
+// Create an SDK progress operation with an initially unknown total.
+ClientProgress* User::CreateProgress(int type) { return new Progress(*this, type, -1); }
+
+// Create an SDK transfer progress operation with its initial size.
+ClientProgress* User::CreateProgress(int type, P4INT64 size) { return new Progress(*this, type, size); }
 class Session {
 public:
     ClientApi client;

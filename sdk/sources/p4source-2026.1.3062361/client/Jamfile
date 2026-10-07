@@ -1,0 +1,87 @@
+SubDir P4 client ;
+
+SubDirHdrs $(P4) diff ;
+SubDirHdrs $(P4) dme ;
+SubDirHdrs $(P4) dmec ;
+SubDirHdrs $(P4) i18n ;
+SubDirHdrs $(P4) map ;
+SubDirHdrs $(P4) net ;
+SubDirHdrs $(P4) rpc ;
+SubDirHdrs $(P4) script ;
+
+Ident clientmain.cc client.cc clientinit.cc serverhelper.cc clientlegal.cc ;
+
+if $(OS) = NT
+{
+	WinRes p4.exe : p4.rc ;
+	WinResIdent p4.rc ;
+
+	WinManifest p4.exe : p4.manifest ;
+}
+
+LinkLibraries p4 :
+	$(CLIENTLIB)
+	$(RPCLIB)
+	$(P4SCRIPT_C)
+	$(P4SCRIPT)
+	$(P4SCRIPT_CURL)
+	$(P4SCRIPT_SQLITE)
+	$(SUPPORTLIB)
+	;
+
+P4Main p4 : clientmain.cc clientaliases.cc clientextpackage.cc ;
+
+if $(USE_EXTENSIONS) = 1
+{
+	if $(MSVSVER)
+	{
+	    ObjectC++Flags clientscript.cc : /std:c++17 ;
+	}
+	else
+	{
+	    ObjectC++Flags clientscript.cc : -std=c++17 ;
+	}
+}
+
+if $(CLANGVER) && [ FVersionCmp $(CLANGVER) : 6.0.0 ] >= 0 || $(GCCVER) && [ FVersionCmp $(GCCVER) : 4.5.4 ] >= 0
+{
+	ObjectC++Flags clientextpackage.cc : -std=c++11 ;
+}
+
+P4APILibrary $(CLIENTLIB) :
+	client.cc
+	clientapi.cc
+	clientaltsynchandler.cc
+	clientenv.cc
+	clienti18n.cc
+	clientinit.cc
+	clientlegal.cc
+	clientmerge.cc
+	clientmerge2.cc
+	clientmerge3.cc
+	clientprog.cc
+	clientrcvfiles.cc
+	clientreplicate.cc
+	clientresolvea.cc
+	clientservice.cc
+	clientservicer.cc
+	clienttrust.cc
+	clientuser.cc
+	clientusercolor.cc
+	clientuserdbg.cc
+	clientusermsh.cc
+	clientusernull.cc
+	p4libs.cc
+	serverhelper.cc
+	serverhelperapi.cc
+	;
+
+P4APILibrary $(P4SCRIPT_C) : clientscript.cc p4libs_ext.cc ;
+P4Library $(P4SCRIPT_CSTUB) : clientscript_stub.cc ;
+
+ObjectC++Flags p4libs.cc : -I $(P4)/script/libs/sqlite3 -I $(P4)/script/libs/cURL -I $(P4)/zlib -I$(SSLINCDIR) ;
+ObjectC++Flags clientextpackage.cc clienttrust.cc clientlegal.cc : -I$(SSLINCDIR) ;
+ObjectC++Flags p4libs_ext.cc : -I $(P4)/script/libs/sqlite3 -I $(P4)/script/libs/cURL ;
+
+LinkMallocLib p4 ;
+#LinkLibraries p4 : $(P4MEMORYMGR_STUB) ;

@@ -1,0 +1,17 @@
+SubDir P4 script libs ;
+
+if $(USE_EXTENSIONS) = 1
+{
+	SubInclude P4 script libs cjson ;
+	SubInclude P4 script libs lua-curlv3 ;
+	SubInclude P4 script libs cURL ;
+	SubInclude P4 script libs sqlite3 ;
+	SubInclude P4 script libs LuaSQLite3 ;
+	SubInclude P4 script libs p4api ;
+	SubInclude P4 script libs p4-lua ;
+}
+else
+{	
+	P4APILibrary $(P4SCRIPT_CURL) : stub_curl.c ;
+	P4APILibrary $(P4SCRIPT_SQLITE) : stub_sqlite.c ;
+}
