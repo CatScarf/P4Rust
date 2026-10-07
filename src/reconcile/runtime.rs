@@ -158,10 +158,11 @@ impl Runtime {
                 completed
             };
             let Some(completed) = completed else { break };
-            completed
+            let (request, reply) = completed
                 .reply
-                .context("Failed to complete reconcile worker")?
-                .commit()
+                .context("Failed to complete reconcile worker")?;
+            reply
+                .commit(request)
                 .context("Failed to commit reconcile reply")?;
         }
         Ok(())
@@ -308,6 +309,7 @@ impl Runtime {
                     task,
                     kind,
                     metadata,
+                    executed: false,
                 })
                 .context("Failed to schedule local reconcile work")?;
             }

@@ -9,7 +9,7 @@ pub(super) struct Work {
 pub(super) struct Completed {
     pub id: u64,
     pub bytes: usize,
-    pub reply: Result<ReconcileReply>,
+    pub reply: Result<(ReconcileRequest, ReconcileReply)>,
 }
 pub(super) struct Pool {
     sender: Option<sync::mpsc::SyncSender<Work>>,
@@ -62,11 +62,11 @@ impl Pool {
                     crate::Error::new("Failed to receive reconcile work: queue lock poisoned")
                 })?
                 .recv();
-            let Ok(work) = work else { break };
+            let Ok(mut work) = work else { break };
             let bytes = work.request.metadata.bytes.len();
             let pointer = work.request.task.pointer() as usize;
             let reply = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                handler.handle(work.request)
+                handler.handle(&mut work.request)
             })) {
                 Ok(result) => result.context("Failed to handle reconcile request"),
                 Err(_) => Err(crate::Error::new(
@@ -75,10 +75,10 @@ impl Pool {
             }
             .and_then(|reply| {
                 crate::error::ensure!(
-                    reply.request.task.pointer() as usize == pointer,
+                    reply.identity == pointer && work.request.executed,
                     "Failed to handle reconcile request: reply belongs to a different request"
                 );
-                Ok(reply)
+                Ok((work.request, reply))
             });
             results
                 .send(Completed {

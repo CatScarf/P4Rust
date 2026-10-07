@@ -16,8 +16,8 @@ pub trait ReconcileHandler: Send + Sync {
     fn queue_bytes(&self) -> usize {
         16 * 1024 * 1024
     }
-    /// Process one owned request without touching its SDK connection.
-    fn handle(&self, request: ReconcileRequest) -> Result<ReconcileReply>;
+    /// Process scoped local work without retaining its native objects after the callback.
+    fn handle(&self, request: &mut ReconcileRequest) -> Result<ReconcileReply>;
 }
 
 /// Parallel SDK comparisons and traversal with bounded command-local queues.
@@ -102,7 +102,7 @@ impl ReconcileHandler for FastReconcile {
         self.bytes
     }
     /// Reuse the SDK's file conversion, hashing, and matching behavior.
-    fn handle(&self, request: ReconcileRequest) -> Result<ReconcileReply> {
+    fn handle(&self, request: &mut ReconcileRequest) -> Result<ReconcileReply> {
         request
             .execute()
             .context("Failed to execute fast reconcile request")

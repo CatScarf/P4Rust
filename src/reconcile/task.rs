@@ -65,6 +65,7 @@ pub struct ReconcileRequest {
     pub(crate) task: Task,
     pub kind: ReconcileKind,
     pub metadata: Record,
+    pub(crate) executed: bool,
 }
 
 impl ReconcileRequest {
@@ -73,7 +74,12 @@ impl ReconcileRequest {
         self.metadata.get_raw(b"localPath")
     }
     /// Execute this request with independent SDK objects on the calling worker.
-    pub fn execute(self) -> Result<ReconcileReply> {
+    pub fn execute(&mut self) -> Result<ReconcileReply> {
+        ensure!(
+            !self.executed,
+            "Failed to execute reconcile request: already executed"
+        );
+        self.executed = true;
         // This worker owns the task and the SDK initializes thread-local state for the call.
         let status = unsafe { ffi::p4rust_reconcile_execute_v3(self.task.pointer()) };
         ensure!(status == 0, "{}", self.task.error());
@@ -91,7 +97,8 @@ impl ReconcileRequest {
             .context("Failed to receive reconcile result")?
             .context("Failed to decode reconcile result")?;
         Ok(ReconcileReply {
-            request: self,
+            identity: self.task.pointer() as usize,
+            kind: self.kind,
             result,
             status: None,
         })
@@ -124,7 +131,8 @@ impl ReconcileRequest {
 
 /// A completed local request whose reply is sent by its connection's owning thread.
 pub struct ReconcileReply {
-    pub(crate) request: ReconcileRequest,
+    pub(crate) identity: usize,
+    kind: ReconcileKind,
     pub result: Record,
     status: Option<ReconcileStatus>,
 }
@@ -133,14 +141,14 @@ impl ReconcileReply {
     /// Override a tracked-file decision while retaining the SDK confirmation context.
     pub fn with_status(mut self, status: ReconcileStatus) -> Result<Self> {
         ensure!(
-            self.request.kind == ReconcileKind::TrackedFile,
+            self.kind == ReconcileKind::TrackedFile,
             "Failed to override reconcile status: request is not a tracked-file comparison"
         );
         self.status = Some(status);
         Ok(self)
     }
     // Commit only on the SDK connection thread after the worker has returned ownership.
-    pub(crate) fn commit(self) -> Result<()> {
+    pub(crate) fn commit(self, request: ReconcileRequest) -> Result<()> {
         let status = match self.status {
             None => -1,
             Some(ReconcileStatus::Same) => 0,
@@ -148,9 +156,8 @@ impl ReconcileReply {
             Some(ReconcileStatus::Exists) => 2,
         };
         // The runtime calls commit exclusively on the native connection thread.
-        let result =
-            unsafe { ffi::p4rust_reconcile_commit_v3(self.request.task.pointer(), status) };
-        ensure!(result == 0, "{}", self.request.task.error());
+        let result = unsafe { ffi::p4rust_reconcile_commit_v3(request.task.pointer(), status) };
+        ensure!(result == 0, "{}", request.task.error());
         Ok(())
     }
 }
