@@ -56,9 +56,12 @@ impl Sdk {
                 "-sWARNINGS_AS_ERRORS=0",
                 "-sSSL=yes",
             ])
-            .arg(format!("-sEXEC={}", output.display()))
-            .arg(format!("-sSSLINCDIR={}", ssl.join("include").display()))
-            .arg(format!("-sSSLLIBDIR={}", ssl.display()));
+            .arg(format!("-sEXEC={}", Self::path(&output, platform)))
+            .arg(format!(
+                "-sSSLINCDIR={}",
+                Self::path(&ssl.join("include"), platform)
+            ))
+            .arg(format!("-sSSLLIBDIR={}", Self::path(ssl, platform)));
         Self::platform(&mut command, platform).context("Failed to configure SDK platform")?;
         let suffix = if platform.msvc() { "lib" } else { "a" };
         let libraries: Vec<_> = ["client", "p4script_cstub", "rpc", "supp"]
@@ -74,6 +77,16 @@ impl Sdk {
             );
         }
         Ok(output)
+    }
+
+    // Keep Windows shell paths free of slash characters interpreted as command switches.
+    fn path(path: &Path, platform: &Platform) -> String {
+        let text = path.to_string_lossy();
+        if platform.windows() {
+            text.replace('/', "\\")
+        } else {
+            text.into_owned()
+        }
     }
 
     // Apply marked compatibility fixes only to the ignored build copy.
