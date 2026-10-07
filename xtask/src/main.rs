@@ -1,6 +1,8 @@
 use crate::error::{Result, ResultExt};
 mod automation;
 #[path = "../../src/error.rs"]
+// Native command status helpers are shared but unused by the maintainer binary.
+#[allow(dead_code)]
 mod error;
 mod openssl;
 mod platform;

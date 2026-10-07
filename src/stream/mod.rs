@@ -1,8 +1,8 @@
-use crate::{Command, Output, Result, ResultExt};
+use crate::{Command, CommandStatus, Output, Result, ResultExt};
 use crate::{capture::Capture, control::Control, native::Native};
 use std::{sync::mpsc, thread, time::Duration};
 mod event;
-pub use event::{CommandStatus, Event, Message, MessageId};
+pub use event::{Event, Message, MessageId};
 pub use event::{Progress, ProgressCallback, Record};
 
 /// A bounded event iterator that requests cancellation when dropped.

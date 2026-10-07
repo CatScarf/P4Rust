@@ -1,3 +1,5 @@
+use crate::CommandStatus;
+
 /// One SDK tagged callback with ordered display fields and original bytes.
 #[derive(Debug)]
 pub struct Record {
@@ -45,14 +47,6 @@ pub struct Progress {
     pub current: i64,
     pub callback: ProgressCallback,
     pub failure: i32,
-}
-
-/// Bridge return code and SDK server error count after native cleanup.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CommandStatus {
-    pub exit_code: i32,
-    pub error_count: Option<i32>,
-    pub success: bool,
 }
 
 /// SDK output callbacks remain distinct; Completed follows native resource cleanup.

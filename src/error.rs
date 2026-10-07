@@ -1,11 +1,19 @@
 use std::{error, fmt};
 
+/// Bridge return code and SDK server error count after native cleanup.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CommandStatus {
+    pub exit_code: i32,
+    pub error_count: Option<i32>,
+    pub success: bool,
+}
+
 /// A contextual failure with an inspectable underlying cause.
 #[derive(Debug)]
 pub struct Error {
     message: String,
     source: Option<Box<dyn error::Error + Send + Sync>>,
-    status: Option<crate::CommandStatus>,
+    status: Option<CommandStatus>,
 }
 
 /// A result returned by the safe Perforce API.
@@ -37,12 +45,12 @@ impl Error {
     }
 
     /// Inspect native completion even when a failure has additional operation context.
-    pub fn command_status(&self) -> Option<crate::CommandStatus> {
+    pub fn command_status(&self) -> Option<CommandStatus> {
         self.status
     }
 
     // Preserve a bridge return code on native and SDK command failures.
-    pub(crate) fn with_status(mut self, status: crate::CommandStatus) -> Self {
+    pub(crate) fn with_status(mut self, status: CommandStatus) -> Self {
         self.status = Some(status);
         self
     }

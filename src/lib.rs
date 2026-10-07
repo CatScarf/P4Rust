@@ -12,10 +12,10 @@ mod stream;
 pub use command::Command;
 pub use control::CancellationToken;
 use error::ensure;
-pub use error::{Error, Result, ResultExt};
+pub use error::{CommandStatus, Error, Result, ResultExt};
 pub use output::{Output, RawOutput};
-pub use stream::{CommandStatus, Message, MessageId, ProgressCallback};
 pub use stream::{CommandStream, Event, Progress, Record};
+pub use stream::{Message, MessageId, ProgressCallback};
 
 /// Explicit settings for a Perforce connection.
 #[derive(Clone, Debug)]
