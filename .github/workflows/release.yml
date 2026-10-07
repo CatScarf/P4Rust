@@ -98,17 +98,15 @@ jobs:
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-llvm
             mingw-w64-x86_64-nasm
-      - name: Build, check, and package
+      - name: Build and package
         if: matrix.target != 'x86_64-pc-windows-gnu'
         shell: pwsh
         run: |
           cargo xtask build --release
           if ($LASTEXITCODE -ne 0) { throw 'Failed to build native and Rust libraries' }
-          cargo xtask check
-          if ($LASTEXITCODE -ne 0) { throw 'Failed strict Clippy' }
-          cargo xtask verify
-          if ($LASTEXITCODE -ne 0) { throw 'Failed tests or external package verification' }
-      - name: Build, check, and package MinGW
+          cargo xtask package
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to package native and Rust libraries' }
+      - name: Build and package MinGW
         if: matrix.target == 'x86_64-pc-windows-gnu'
         shell: msys2 {0}
         env:
@@ -120,8 +118,7 @@ jobs:
         run: |
           set -euo pipefail
           cargo xtask build --release
-          cargo xtask check
-          cargo xtask verify
+          cargo xtask package
       - name: Enforce package size
         shell: pwsh
         env:

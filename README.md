@@ -46,6 +46,6 @@ SDK libraries are stored as `.tar.zst` archives. `xtask` verifies and extracts t
 
 ## Releases
 
-GitHub Actions builds and verifies all seven targets on pushes to `main` or manual runs. Pull requests run the same checks without publishing. The version comes from `Cargo.toml`.
+GitHub Actions builds and packages all seven targets on pushes to `main` or manual runs. Pull requests build the same packages without publishing. The version comes from `Cargo.toml`.
 
 Each release `v<version>` contains one `p4rust-<version>.zip`, with a target directory containing its precompiled `.crate`. All seven builds must pass, and each crate must stay below 10 MB. Rebuilding the same version replaces the ZIP and updates its tag to the current commit; increasing the version creates a new release.
