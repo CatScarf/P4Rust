@@ -1,0 +1,198 @@
+[
+  {
+    "directory": "sdk/lib/x86_64-pc-windows-msvc",
+    "archive": "sdk/archives/x86_64-pc-windows-msvc.tar.zst",
+    "sha256": "fe602f48a104b851f5c4b04fadaeb51d67b20f4bf127e46b88b38229227a0e58",
+    "bytes": 7604003,
+    "files": [
+      {
+        "name": "libclient.lib",
+        "bytes": 20945150,
+        "sha256": "00647ac85b658b8ddd2a2fc9025251d619136b728befb6c0014478b0438a4ef8"
+      },
+      {
+        "name": "libp4script_cstub.lib",
+        "bytes": 1106866,
+        "sha256": "c863933da7b00fb9ef4c717eb7264dd07d5fd292fa65404cc370fdfd6bbd667d"
+      },
+      {
+        "name": "librpc.lib",
+        "bytes": 3779112,
+        "sha256": "1211c9d0449ac5ab600b9c97383c9efb18d04c91395e1fe30d3286b6a2e981ef"
+      },
+      {
+        "name": "libsupp.lib",
+        "bytes": 31890848,
+        "sha256": "470c673b878ea704d047b3db76824f7781d093277462260ca52212d22b52b996"
+      }
+    ]
+  },
+  {
+    "directory": "sdk/lib/aarch64-pc-windows-msvc",
+    "archive": "sdk/archives/aarch64-pc-windows-msvc.tar.zst",
+    "sha256": "20875794403c3ba99bbb33022bd74c3c7c663badd992264e9633c59c8a127b33",
+    "bytes": 7448467,
+    "files": [
+      {
+        "name": "libclient.lib",
+        "bytes": 21315646,
+        "sha256": "14b1bde6b538a4f54a6813c566cb46f9fc1f74df95c35da67945024caac4ee17"
+      },
+      {
+        "name": "libp4script_cstub.lib",
+        "bytes": 1065296,
+        "sha256": "b61bd7e4bc325042b99141454fc715a052ad52d13a75949d0e3f1ceb7b1c0d67"
+      },
+      {
+        "name": "librpc.lib",
+        "bytes": 3944598,
+        "sha256": "65533f7196a2d6b275881d8dc55b1751b6b4417a952c21026c3d32f6aaa1319a"
+      },
+      {
+        "name": "libsupp.lib",
+        "bytes": 31720980,
+        "sha256": "f21a110df5e0ee3329ed9e54170fa3d966af6e182ad1dced0bc7f22d2481f492"
+      }
+    ]
+  },
+  {
+    "directory": "sdk/lib/x86_64-pc-windows-gnu",
+    "archive": "sdk/archives/x86_64-pc-windows-gnu.tar.zst",
+    "sha256": "6ab3e5f61342afb29cab8ab17b62db34256e7b902cdbe12254748a8446178faa",
+    "bytes": 1321947,
+    "files": [
+      {
+        "name": "libclient.a",
+        "bytes": 881632,
+        "sha256": "4ed32e85e29763217cb0de79feeb6405c5491aa1033e03befba33eac3f01842b"
+      },
+      {
+        "name": "libp4script_cstub.a",
+        "bytes": 1032,
+        "sha256": "cd351ee1d8a26a1d62fd833a85512d75812c32b8ea61a1481bb013b9503c2b6d"
+      },
+      {
+        "name": "librpc.a",
+        "bytes": 515354,
+        "sha256": "c97a78ac134bacec893d23982237d32e1659d898e4c4e2f943646dcbdeda90cb"
+      },
+      {
+        "name": "libsupp.a",
+        "bytes": 3230632,
+        "sha256": "db9119cc263f937ea9cc131b2bbb7a2db271cc68eca725b892e739f8c7979cc9"
+      }
+    ]
+  },
+  {
+    "directory": "sdk/lib/x86_64-unknown-linux-gnu",
+    "archive": "sdk/archives/x86_64-unknown-linux-gnu.tar.zst",
+    "sha256": "334d7bacb117a76cf133ac72567ce18b859acc01a5e27ea963aff4243e01aab3",
+    "bytes": 12822703,
+    "files": [
+      {
+        "name": "libclient.a",
+        "bytes": 14375726,
+        "sha256": "242d5ec47e02b21bd5268d475c29316a14501e572be6685724f10489e9d1e59b"
+      },
+      {
+        "name": "libp4script_cstub.a",
+        "bytes": 266044,
+        "sha256": "c260d3a60a320055c254fbe7574336fd848593c5c1306f986aefeac55a4a46d5"
+      },
+      {
+        "name": "librpc.a",
+        "bytes": 3817468,
+        "sha256": "38587793234fcfc4177ded833a36bd179004867772c028ab099da947d32b99f9"
+      },
+      {
+        "name": "libsupp.a",
+        "bytes": 27779236,
+        "sha256": "907d46072d6c2521c5d4e2123debc091cd127d4ec38bba87ee4e9cf099c05b9a"
+      }
+    ]
+  },
+  {
+    "directory": "sdk/lib/aarch64-unknown-linux-gnu",
+    "archive": "sdk/archives/aarch64-unknown-linux-gnu.tar.zst",
+    "sha256": "b00a965ef05337e4ddd6f3209a3270e4a0de64aa25b0d7d20672b0d4de7a702c",
+    "bytes": 10111579,
+    "files": [
+      {
+        "name": "libclient.a",
+        "bytes": 23390006,
+        "sha256": "c7de0f4fd7e438f190589c37b8c66d940db49658a856b7762c301ec3ffe15266"
+      },
+      {
+        "name": "libp4script_cstub.a",
+        "bytes": 520308,
+        "sha256": "d31069dd1ffae3ef94b16ebca5fa17d8595150cdb44ca098910adc695abd8c41"
+      },
+      {
+        "name": "librpc.a",
+        "bytes": 5429596,
+        "sha256": "c10a45caa88e01ea8b41c4b411972e4526d8ab7d0a06c584756ad26fd58ce0e3"
+      },
+      {
+        "name": "libsupp.a",
+        "bytes": 43176212,
+        "sha256": "19e332804ca02188b1cad601bbd8eef3d5919ef650cb0f38f093699e80a88666"
+      }
+    ]
+  },
+  {
+    "directory": "sdk/lib/x86_64-apple-darwin",
+    "archive": "sdk/archives/x86_64-apple-darwin.tar.zst",
+    "sha256": "0637029fe9f4f813b2cf6804ac8d2aad63f74f9d8a2bd38a83f83bbf4f15f524",
+    "bytes": 5317873,
+    "files": [
+      {
+        "name": "libclient.a",
+        "bytes": 7353280,
+        "sha256": "13038c67ce135c116da4b2306038870c1f40ddd67763aad539ea97b9134e8e2d"
+      },
+      {
+        "name": "libp4script_cstub.a",
+        "bytes": 475928,
+        "sha256": "bb41c62349b8a89350fb1c40d93a055c315591bf57d987b643664cfbd38baa09"
+      },
+      {
+        "name": "librpc.a",
+        "bytes": 2023224,
+        "sha256": "7621ba8c70ad0cb2f665c7c1416be39329bb4d307fcd3d0b2720bbf0393a90b1"
+      },
+      {
+        "name": "libsupp.a",
+        "bytes": 14180888,
+        "sha256": "30be4e8a7969766da24475eb26b1bea495d1287757c5989731a466de76f92bbe"
+      }
+    ]
+  },
+  {
+    "directory": "sdk/lib/aarch64-apple-darwin",
+    "archive": "sdk/archives/aarch64-apple-darwin.tar.zst",
+    "sha256": "1361e73f7157549d91fa42a0439c78cd665e76e36fecfde9dcfaed19d58b75a3",
+    "bytes": 5236982,
+    "files": [
+      {
+        "name": "libclient.a",
+        "bytes": 7357448,
+        "sha256": "346fdc2d1f5d580b170475f99e00058904a48795ac7ebaf0499cf61a2df583d5"
+      },
+      {
+        "name": "libp4script_cstub.a",
+        "bytes": 475424,
+        "sha256": "57bfd3ed878d10aeaeb94c95fe22a8f47f60fd8115c585fb863ea6d54ca0b637"
+      },
+      {
+        "name": "librpc.a",
+        "bytes": 2073336,
+        "sha256": "7095536989e28da3b97811e9bf2bc9dc65c67b9bbaf8dd800e709b6d50d7292f"
+      },
+      {
+        "name": "libsupp.a",
+        "bytes": 14044528,
+        "sha256": "dfcee5e235217a457901f3545cb81904abf4bc777aea5f013bfbaae419145152"
+      }
+    ]
+  }
+]

@@ -1,0 +1,10 @@
+/target/
+/temp/
+
+/sdk/lib/
+/native/lib/
+
+/xtask/target/
+/xtask/Cargo.lock
+
+/native/archives/

@@ -1,0 +1,22 @@
+[package]
+name = "p4rust"
+version = "0.1.0"
+edition = "2024"
+repository = "https://github.com/CatScarf/P4Rust"
+description = "Safe Rust bindings to the official Perforce C++ client API"
+readme = "README.md"
+build = "build.rs"
+links = "p4rust_abi_v1"
+include = ["src/**", "README.md", "Cargo.toml", "Cargo.lock", "build.rs", "native/lib/**", "native/NOTICE.md", "native/OPENSSL-LICENSE.txt"]
+
+[workspace]
+members = ["xtask"]
+default-members = ["."]
+resolver = "3"
+
+[dependencies]
+
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"

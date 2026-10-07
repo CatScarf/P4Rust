@@ -1,0 +1,3 @@
+sdk/include/p4/*.h text eol=lf
+sdk/lib/** -text
+native/lib/** -text
