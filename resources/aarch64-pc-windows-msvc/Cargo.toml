@@ -1,11 +1,12 @@
 [package]
 name = "p4rust-resources-aarch64-pc-windows-msvc"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
+license = "MIT AND BSD-2-Clause AND Apache-2.0"
 description = "Precompiled Perforce C ABI resources for aarch64-pc-windows-msvc"
 repository = "https://github.com/CatScarf/P4Rust"
 links = "p4rust_abi_v2_aarch64_pc_windows_msvc"
-include = ["src/**", "build.rs", "native/**", "PERFORCE-LICENSE.txt", "OPENSSL-LICENSE.txt", "Cargo.toml"]
+include = ["src/**", "/build.rs", "native/**", "/LICENSE", "/PERFORCE-LICENSE.txt", "/OPENSSL-LICENSE.txt", "/Cargo.toml"]
 
 [lints.clippy]
 unwrap_used = "deny"

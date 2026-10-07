@@ -328,8 +328,9 @@ int32_t execute(const p4rust_options_v1& options, const char* command, int32_t a
     user.context = context;
     user.input = options.input;
     user.interrupt = alive ? &interrupt : nullptr;
-    if (alive) session.client.SetBreak(&interrupt);
     session.Open(user);
+    // The SDK requires SetBreak after a successful Init.
+    if (alive) session.client.SetBreak(&interrupt);
     interrupt.Check();
     std::vector<std::string> storage;
     std::vector<char*> pointers;
