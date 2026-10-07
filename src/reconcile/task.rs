@@ -83,7 +83,7 @@ impl ReconcileRequest {
         // This worker owns the task and the SDK initializes thread-local state for the call.
         let status = unsafe { ffi::p4rust_reconcile_execute_v3(self.task.pointer()) };
         ensure!(status == 0, "{}", self.task.error());
-        let mut result = None;
+        let mut result: Option<Result<Record>> = None;
         // The callback borrows a bounded dictionary owned by this live task.
         let status = unsafe {
             ffi::p4rust_reconcile_result_v3(

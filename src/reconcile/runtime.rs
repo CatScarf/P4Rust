@@ -1,5 +1,5 @@
 use super::{ReconcileHandler, ReconcileKind, ReconcileRequest, pool, task::Task};
-use crate::{Record, Result, ResultExt, control::Control, error::ensure, ffi};
+use crate::{Record, Result, ResultExt, control::Control, error::ensure};
 use std::{collections::BTreeMap, ffi::c_void, sync, time};
 
 #[derive(Default)]
