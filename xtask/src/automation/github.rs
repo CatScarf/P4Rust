@@ -39,7 +39,14 @@ impl GitHub {
         if exists {
             Self::replace(root, &repository, &sha, &tag, &asset, &archive)
                 .context("Failed to replace same-version release")?;
-            args.extend(["edit", &tag, "--draft=false", "--prerelease=false"]);
+            args.extend([
+                "edit",
+                &tag,
+                "--draft=false",
+                "--prerelease=false",
+                "--target",
+                &sha,
+            ]);
         } else {
             args.extend(["create", &tag, &archive, "--target", &sha]);
         }
