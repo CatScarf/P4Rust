@@ -252,7 +252,7 @@ impl Registry {
     // Bundle the same bytes consumers download, including on idempotent workflow reruns.
     fn canonical(root: &path::Path, publication: &Publication, archive: &path::Path) -> Result<()> {
         let targets: &[&str] = if publication.package.name == "p4rust" {
-            &Platform::TARGETS
+            Platform::TARGETS
         } else {
             std::slice::from_ref(&publication.target)
         };
