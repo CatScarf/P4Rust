@@ -343,7 +343,7 @@ int32_t execute(const p4rust_options_v1& options, const char* command, int32_t a
     session.client.SetArgv(static_cast<int>(pointers.size()), pointers.data());
     interrupt.Check();
     session.client.Run(command, &user);
-    if (reconcile) scheduling.Call(4);
+    if (reconcile) scheduling.Drain();
     scheduling.Close();
     const int32_t errors = session.client.GetErrors();
     user.Emit(P4RUST_STATUS, reinterpret_cast<const char*>(&errors), sizeof(errors));

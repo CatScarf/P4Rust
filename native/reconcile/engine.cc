@@ -36,7 +36,23 @@ void ReconcileScope::Submit(Task* pointer) {
         throw std::runtime_error("Failed to schedule Rust reconcile request");
 }
 // Join native-data users before closing the SDK session.
-void ReconcileScope::Close() { closed = true; if (callback) Call(6); }
+void ReconcileScope::Close() { closed = true; producers.clear(); if (callback) Call(6); }
+// Keep child generation lazy so queue backpressure cannot create a recursive commit chain.
+void ReconcileScope::Defer(std::function<Task*()> supplier) { producers.push_front(std::move(supplier)); }
+// Reserve no more than one additional task before asking Rust to take ownership.
+bool ReconcileScope::Produce() {
+    if (closed || producers.empty() || !Call(7)) return false;
+    auto* task = producers.front()();
+    if (!task) { producers.pop_front(); return true; }
+    Submit(task);
+    return true;
+}
+// Pump completions before supplying another child without holding any scheduler mutex.
+void ReconcileScope::Pump(bool wait) { Call(2); if (!Produce() && wait) Call(3); }
+// Drain local child generation and worker replies iteratively instead of recursively.
+void ReconcileScope::Drain() { while (Pending()) { if (!Produce()) Call(3); } }
+// Include deferred children when deciding whether a stage has completed.
+bool ReconcileScope::Pending() { return !producers.empty() || Call(5) != 0; }
 // Stop the connection and join local work while keeping SDK stack cleanup intact.
 void ReconcileScope::Fail(const char* message) noexcept {
     if (user.interrupt) user.interrupt->failed.store(true);
@@ -108,14 +124,14 @@ void Task::CheckError(Error& error, const char* operation) {
 bool Pending(Rpc* rpc) {
     auto* scope = ReconcileScope::Current();
     if (!scope || scope->client != rpc || (scope->user.interrupt && !scope->user.interrupt->IsAlive())) return false;
-    try { return scope->Call(5) != 0; }
+    try { return scope->Pending(); }
     catch (const std::exception& error) { scope->Fail(error.what()); return false; }
 }
 // Pump worker replies exclusively from the SDK dispatcher thread.
 void Pump(Rpc* rpc, bool wait) {
     auto* scope = ReconcileScope::Current();
     if (scope && scope->client == rpc) {
-        try { scope->Call(wait ? 3 : 2); }
+        try { scope->Pump(wait); }
         catch (const std::exception& error) { scope->Fail(error.what()); }
     }
 }
@@ -123,7 +139,7 @@ void Pump(Rpc* rpc, bool wait) {
 void Barrier(Client* client) {
     auto* scope = ReconcileScope::Current();
     if (scope && scope->client == client) {
-        try { scope->Call(4); }
+        try { scope->Drain(); }
         catch (const std::exception& error) { scope->Fail(error.what()); }
     }
 }

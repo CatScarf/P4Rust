@@ -135,7 +135,7 @@ bool ScheduleExact(Client* client) {
     if (!scope) return false;
     scope->client = client;
     try {
-        scope->Call(4);
+        scope->Drain();
         auto group = std::make_shared<ExactGroup>();
         group->request.Copy(client);
         for (int i = 0; client->GetVar(StrRef(P4Tag::v_toFile), i); ++i) {
@@ -147,7 +147,7 @@ bool ScheduleExact(Client* client) {
             if (error.Test() || !file) continue;
             scope->Submit(new ExactTask(*scope, file.release(), group, i));
         }
-        scope->Call(4);
+        scope->Drain();
         Fields reply = group->request;
         if (group->first >= 0) {
             reply.Set("toFile", group->path); reply.Set("index", group->index);

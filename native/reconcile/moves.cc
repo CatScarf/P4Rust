@@ -47,7 +47,7 @@ void MatchThread::Start(std::function<void()> function) {
 void MatchThread::join() {
     if (fallback) { if (fallback->joinable()) fallback->join(); return; }
     if (!state) return;
-    try { state->scope->Call(4); }
+    try { state->scope->Drain(); }
     catch (const std::exception& error) { state->scope->Fail(error.what()); }
     if (!state->done.load()) state->scope->Fail("Unfinished SDK move comparison");
     state.reset();

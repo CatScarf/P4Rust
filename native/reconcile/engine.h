@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <utility>
 #include <map>
+#include <deque>
 
 namespace p4rust {
 class User;
@@ -28,6 +29,7 @@ class ReconcileScope {
     p4rust_reconcile_v3 callback;
     void* scheduler;
     bool closed = false;
+    std::deque<std::function<Task*()>> producers;
 public:
     Client* client = nullptr;
     User& user;
@@ -45,6 +47,16 @@ public:
     void Close();
     // Mark a failed local stage without unwinding through SDK-owned temporary allocations.
     void Fail(const char*) noexcept;
+    // Retain a lazy child supplier without recursively committing other completed tasks.
+    void Defer(std::function<Task*()>);
+    // Admit one deferred child only when Rust has a free task slot.
+    bool Produce();
+    // Deliver ready results and admit deferred local work on the owner thread.
+    void Pump(bool);
+    // Finish both deferred children and queued workers before advancing an SDK phase.
+    void Drain();
+    // Inspect lazy children and Rust-owned work together.
+    bool Pending();
     // Expose only the active scheduling context on the connection thread.
     static ReconcileScope* Current();
 };

@@ -334,6 +334,17 @@ impl Runtime {
                 ));
             }
             6 => self.close().context("Failed to stop reconcile workers")?,
+            7 => {
+                return Ok(i32::from(
+                    self.state
+                        .lock()
+                        .map_err(|_| {
+                            crate::Error::new("Failed to inspect reconcile admission slots")
+                        })?
+                        .count
+                        < self.capacity,
+                ));
+            }
             _ => {
                 return Err(crate::Error::new(
                     "Failed to decode reconcile scheduling operation",

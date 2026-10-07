@@ -98,17 +98,20 @@ public:
         Check();
         if (first < 0 && context->progress) context->progress->Increment(1);
         if (first < 0 && listing) {
-            for (int i = 0; i < listing->Count(); i += 64) {
-                Check();
-                scope.Submit(new DirectoryTask(context, path, listing, i));
-            }
+            scope.Defer([scan = context, local = path, names_list = listing, i = 0]() mutable -> Task* {
+                if (i >= names_list->Count()) return nullptr;
+                auto* task = new DirectoryTask(scan, local, names_list, i);
+                i += 64;
+                return task;
+            });
             return;
         }
-        for (const auto& entry : entries) {
-            Check();
-            if (entry.directory) ScheduleDirectory(context, entry.path);
-            else ScheduleFile(context, entry.path, entry.wire);
-        }
+        scope.Defer([scan = context, candidates = std::move(entries), i = size_t{0}]() mutable -> Task* {
+            if (i == candidates.size()) return nullptr;
+            const auto& entry = candidates[i++];
+            if (entry.directory) return new DirectoryTask(scan, entry.path);
+            return new AddFileTask(scan, entry.path, entry.wire);
+        });
     }
 };
 // Transfer one directory to the metadata pool without invoking RPC from a worker.

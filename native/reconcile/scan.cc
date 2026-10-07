@@ -11,11 +11,11 @@ bool Traverse(Client* client, const char* dir, int traverse, int no_ignore, int 
     if (!scope) return false;
     scope->client = client;
     try {
-    scope->Call(4);
+    scope->Drain();
     auto context = std::make_shared<ScanContext>(*scope, client, map, known, config,
         traverse, no_ignore, get_digests, get_types, progress);
     ScheduleDirectory(context, dir);
-    scope->Call(4);
+    scope->Drain();
     std::sort(context->output.begin(), context->output.end(), [](const Fields& a, const Fields& b) {
         const auto left = a.Get("file"), right = b.Get("file");
         return StrRef(left.c_str()).SCompare(StrRef(right.c_str())) < 0;
