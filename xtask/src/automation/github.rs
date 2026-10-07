@@ -32,7 +32,7 @@ impl GitHub {
         let archive = format!("temp/release-output/{asset}");
         let title = format!("P4Rust {version}");
         let notes =
-            format!("Precompiled packages for all seven supported targets. Source commit: {sha}.");
+            format!("Precompiled packages for all six supported targets. Source commit: {sha}.");
         let exists =
             Self::exists(root, &repository, &tag).context("Failed to locate versioned release")?;
         let mut args = vec!["release"];

@@ -56,34 +56,6 @@
     ]
   },
   {
-    "directory": "sdk/lib/x86_64-pc-windows-gnu",
-    "archive": "sdk/archives/x86_64-pc-windows-gnu.tar.zst",
-    "sha256": "6ab3e5f61342afb29cab8ab17b62db34256e7b902cdbe12254748a8446178faa",
-    "bytes": 1321947,
-    "files": [
-      {
-        "name": "libclient.a",
-        "bytes": 881632,
-        "sha256": "4ed32e85e29763217cb0de79feeb6405c5491aa1033e03befba33eac3f01842b"
-      },
-      {
-        "name": "libp4script_cstub.a",
-        "bytes": 1032,
-        "sha256": "cd351ee1d8a26a1d62fd833a85512d75812c32b8ea61a1481bb013b9503c2b6d"
-      },
-      {
-        "name": "librpc.a",
-        "bytes": 515354,
-        "sha256": "c97a78ac134bacec893d23982237d32e1659d898e4c4e2f943646dcbdeda90cb"
-      },
-      {
-        "name": "libsupp.a",
-        "bytes": 3230632,
-        "sha256": "db9119cc263f937ea9cc131b2bbb7a2db271cc68eca725b892e739f8c7979cc9"
-      }
-    ]
-  },
-  {
     "directory": "sdk/lib/x86_64-unknown-linux-gnu",
     "archive": "sdk/archives/x86_64-unknown-linux-gnu.tar.zst",
     "sha256": "334d7bacb117a76cf133ac72567ce18b859acc01a5e27ea963aff4243e01aab3",

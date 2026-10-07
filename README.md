@@ -1,6 +1,6 @@
 # P4Rust
 
-Safe Rust bindings to the official Perforce C++ API. Precompiled native libraries and no Rust dependencies. Release packages cover Windows x64 (MSVC and GNU), Windows ARM64, Linux x64/ARM64, and macOS x64/ARM64.
+Safe Rust bindings to the official Perforce C++ API. Precompiled native libraries and no Rust dependencies. Release packages cover Windows x64 (MSVC), Windows ARM64, Linux x64/ARM64, and macOS x64/ARM64.
 
 ## Usage
 
@@ -46,6 +46,6 @@ SDK libraries are stored as `.tar.zst` archives. `xtask` verifies and extracts t
 
 ## Releases
 
-GitHub Actions builds and packages all seven targets on pushes to `main` or manual runs. Pull requests build the same packages without publishing. The version comes from `Cargo.toml`.
+GitHub Actions builds and packages all six targets on pushes to `main` or manual runs. Pull requests build the same packages without publishing. The version comes from `Cargo.toml`.
 
-Each release `v<version>` contains one `p4rust-<version>.zip`, with a target directory containing its precompiled `.crate`. All seven builds must pass, and each crate must stay below 10 MB. Rebuilding the same version replaces the ZIP and updates its tag to the current commit; increasing the version creates a new release.
+Each release `v<version>` contains one `p4rust-<version>.zip`, with a target directory containing its precompiled `.crate`. All six builds must pass, and each crate must stay below 10 MB. Rebuilding the same version replaces the ZIP and updates its tag to the current commit; increasing the version creates a new release.

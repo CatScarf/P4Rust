@@ -43,7 +43,7 @@ impl Dependencies {
                 )
                 .context("Failed to install Linux build tools")?;
             }
-        } else if platform.msvc() {
+        } else {
             for (tool, package, installed) in [
                 ("perl", "strawberryperl", "C:/Strawberry/perl/bin/perl.exe"),
                 (
@@ -64,17 +64,6 @@ impl Dependencies {
                     .with_context(|| format!("Failed to install {package}"))?;
                 }
             }
-        } else {
-            if !Path::new("C:/msys64/usr/bin/bash.exe").is_file() {
-                Runner::run(
-                    Command::new("choco").args(["install", "msys2", "--yes", "--no-progress"]),
-                    false,
-                )
-                .context("Failed to install MSYS2")?;
-            }
-            Runner::run(Command::new("C:/msys64/usr/bin/bash.exe")
-                .args(["-lc", "pacman -Sy --needed --noconfirm make perl mingw-w64-x86_64-gcc mingw-w64-x86_64-llvm mingw-w64-x86_64-nasm"]), false)
-                .context("Failed to install MinGW build tools")?;
         }
         Runner::run(
             Command::new("rustup").args(["target", "add", &platform.target]),

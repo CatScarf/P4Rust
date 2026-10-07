@@ -14,10 +14,9 @@ Perforce 2025.2, build 3086021, with OpenSSL 3 compatibility. The SDK is a maint
 | --- | --- |
 | `x86_64-pc-windows-msvc` | `bin.ntx64` |
 | `aarch64-pc-windows-msvc` | `bin.ntarm64` |
-| `x86_64-pc-windows-gnu` | `bin.mingw64x64` |
 | `x86_64-unknown-linux-gnu` | `bin.linux26x86_64` |
 | `aarch64-unknown-linux-gnu` | `bin.linux26aarch64` |
 | `x86_64-apple-darwin` | `bin.macosx12x86_64` |
 | `aarch64-apple-darwin` | `bin.macosx12arm64` |
 
-GitHub Actions builds all seven targets. No 32-bit targets are retained. The SDK libraries are `client`, `p4script_cstub`, `rpc`, and `supp`; scripting runtimes and aggregate archives are excluded.
+GitHub Actions builds all six targets. No 32-bit targets are retained. The SDK libraries are `client`, `p4script_cstub`, `rpc`, and `supp`; scripting runtimes and aggregate archives are excluded.

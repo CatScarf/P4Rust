@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $targets = (Get-Content (Join-Path $root 'sdk/archives.json') -Raw | ConvertFrom-Json).directory |
     ForEach-Object { ($_ -split '/')[-1] }
-if ($targets.Count -ne 7) { throw 'Release requires exactly seven maintained SDK targets' }
+if ($targets.Count -ne 6) { throw 'Release requires exactly six maintained SDK targets' }
 $stage = Join-Path $OutputDirectory ('stage-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 foreach ($target in $targets) {

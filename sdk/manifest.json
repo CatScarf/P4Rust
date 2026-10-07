@@ -182,35 +182,6 @@
     {
       "libraries": [
         {
-          "file": "lib/x86_64-pc-windows-gnu/libclient.a",
-          "bytes": 881632,
-          "sha256": "4ed32e85e29763217cb0de79feeb6405c5491aa1033e03befba33eac3f01842b"
-        },
-        {
-          "file": "lib/x86_64-pc-windows-gnu/librpc.a",
-          "bytes": 515354,
-          "sha256": "c97a78ac134bacec893d23982237d32e1659d898e4c4e2f943646dcbdeda90cb"
-        },
-        {
-          "file": "lib/x86_64-pc-windows-gnu/libsupp.a",
-          "bytes": 3230632,
-          "sha256": "db9119cc263f937ea9cc131b2bbb7a2db271cc68eca725b892e739f8c7979cc9"
-        },
-        {
-          "file": "lib/x86_64-pc-windows-gnu/libp4script_cstub.a",
-          "bytes": 1032,
-          "sha256": "cd351ee1d8a26a1d62fd833a85512d75812c32b8ea61a1481bb013b9503c2b6d"
-        }
-      ],
-      "sdk_root": "p4api-2025.2.3086021",
-      "url": "https://ftp.perforce.com/perforce/r25.2/bin.mingw64x64/p4api-openssl3_gcc8_win32_seh.zip",
-      "archive_sha256": "87435bdbad6341bc0ec736f1e577b15f2db74244d4a1cff234de5b748dd4832d",
-      "target": "x86_64-pc-windows-gnu",
-      "license_members": []
-    },
-    {
-      "libraries": [
-        {
           "file": "lib/x86_64-pc-windows-msvc/libclient.lib",
           "bytes": 20945150,
           "sha256": "00647ac85b658b8ddd2a2fc9025251d619136b728befb6c0014478b0438a4ef8"

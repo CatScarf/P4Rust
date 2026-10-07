@@ -49,22 +49,10 @@ impl Prune {
                 .file_name()
                 .and_then(|name| name.to_str())
                 .context("Failed to identify archive")?;
-            if matches!(
-                name,
-                "libssl.a"
-                    | "libcrypto.a"
-                    | "libstdc++.a"
-                    | "libwinpthread.a"
-                    | "libgcc.a"
-                    | "libgcc_eh.a"
-            ) {
+            if matches!(name, "libssl.a" | "libcrypto.a") {
                 continue;
             }
             let required = Self::members(&trace, name);
-            if required.is_empty() && matches!(name, "libgcc.a" | "libgcc_eh.a" | "libwinpthread.a")
-            {
-                continue;
-            }
             ensure!(
                 !required.is_empty() || name == "libp4script_cstub.a",
                 "Failed to trace archive members: {name}"
@@ -117,11 +105,7 @@ impl Prune {
         fs::write(&source, "#include <client.h>\n// Retain every public ABI symbol for archive dependency analysis.\nint main() { auto volatile version = &p4rust_abi_version; auto volatile execute = &p4rust_execute_v1; auto volatile controlled = &p4rust_execute_controlled_v1; (void)version; (void)execute; (void)controlled; return 0; }\n")
             .context("Failed to write ABI dependency probe")?;
         let map = staging.join("dependency-probe.map");
-        let executable = staging.join(if platform.windows() {
-            "dependency-probe.exe"
-        } else {
-            "dependency-probe"
-        });
+        let executable = staging.join("dependency-probe");
         let compiler = platform
             .compiler()
             .try_get_compiler()
@@ -154,22 +138,8 @@ impl Prune {
                 .arg(format!("-Wl,-Map,{}", map.display()))
                 .arg("-Wl,--start-group")
                 .args(libraries)
-                .arg("-Wl,--end-group");
-            if platform.windows() {
-                command.args([
-                    "-static-libstdc++",
-                    "-static-libgcc",
-                    "-lws2_32",
-                    "-ladvapi32",
-                    "-lcrypt32",
-                    "-luser32",
-                    "-lshell32",
-                    "-lole32",
-                    "-lgdi32",
-                ]);
-            } else {
-                command.args(["-pthread", "-ldl", "-lresolv"]);
-            }
+                .arg("-Wl,--end-group")
+                .args(["-pthread", "-ldl", "-lresolv"]);
         }
         let output =
             Runner::run(&mut command, true).context("Failed to link ABI dependency probe")?;

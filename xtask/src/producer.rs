@@ -66,9 +66,7 @@ impl Producer {
                 .arg(self.root.join("sdk/include/p4"))
                 .arg("-o")
                 .arg(&object)
-                .arg(if self.platform.windows() {
-                    "-DOS_NT"
-                } else if self.platform.apple() {
+                .arg(if self.platform.apple() {
                     "-DOS_MACOSX"
                 } else {
                     "-DOS_LINUX"

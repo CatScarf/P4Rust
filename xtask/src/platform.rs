@@ -10,7 +10,6 @@ impl Platform {
     pub(crate) const TARGETS: &[&str] = &[
         "x86_64-pc-windows-msvc",
         "aarch64-pc-windows-msvc",
-        "x86_64-pc-windows-gnu",
         "x86_64-unknown-linux-gnu",
         "aarch64-unknown-linux-gnu",
         "x86_64-apple-darwin",
@@ -20,9 +19,8 @@ impl Platform {
     // Select a maintained SDK target independently of the producer's Rust host.
     pub(crate) fn selected() -> Result<Self> {
         let host = match (env::consts::OS, env::consts::ARCH) {
-            ("windows", "x86_64") if cfg!(target_env = "gnu") => "x86_64-pc-windows-gnu",
-            ("windows", "x86_64") => "x86_64-pc-windows-msvc",
-            ("windows", "aarch64") => "aarch64-pc-windows-msvc",
+            ("windows", "x86_64") if cfg!(target_env = "msvc") => "x86_64-pc-windows-msvc",
+            ("windows", "aarch64") if cfg!(target_env = "msvc") => "aarch64-pc-windows-msvc",
             ("linux", "x86_64") => "x86_64-unknown-linux-gnu",
             ("linux", "aarch64") => "aarch64-unknown-linux-gnu",
             ("macos", "x86_64") => "x86_64-apple-darwin",
@@ -88,8 +86,6 @@ impl Platform {
             .cargo_metadata(false);
         if self.msvc() {
             compiler.flag("/EHsc");
-        } else if self.windows() && Path::new("C:/msys64/mingw64/bin/g++.exe").is_file() {
-            compiler.compiler("C:/msys64/mingw64/bin/g++.exe");
         }
         if self.windows() {
             compiler.define("OS_NT", None).define("NOMINMAX", None);

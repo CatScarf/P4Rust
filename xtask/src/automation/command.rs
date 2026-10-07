@@ -46,19 +46,6 @@ impl Runner {
             crate::platform::Platform::selected().context("Failed to select command platform")?;
         let mut paths = Vec::new();
         if platform.windows() {
-            if !platform.msvc() {
-                paths.extend(["C:/msys64/mingw64/bin", "C:/msys64/usr/bin"]);
-                command
-                    .env("MSYSTEM", "MINGW64")
-                    .env("RANLIB", "ranlib")
-                    .env(
-                        "P4RUST_RUNTIME_LICENSE_DIR",
-                        "C:/msys64/mingw64/share/licenses",
-                    )
-                    .env("CC_x86_64_pc_windows_gnu", "gcc")
-                    .env("CXX_x86_64_pc_windows_gnu", "g++")
-                    .env("AR_x86_64_pc_windows_gnu", "ar");
-            }
             paths.extend([
                 "C:/Strawberry/perl/bin",
                 "C:/Program Files/NASM",

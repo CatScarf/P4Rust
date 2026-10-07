@@ -10,7 +10,6 @@ impl Link {
         if ![
             "x86_64-pc-windows-msvc",
             "aarch64-pc-windows-msvc",
-            "x86_64-pc-windows-gnu",
             "x86_64-unknown-linux-gnu",
             "aarch64-unknown-linux-gnu",
             "x86_64-apple-darwin",
@@ -68,11 +67,6 @@ impl Link {
             println!("cargo:rustc-link-lib=static={name}");
         }
         if target.contains("windows") {
-            if !msvc {
-                for library in ["stdc++", "winpthread", "gcc_eh", "gcc"] {
-                    println!("cargo:rustc-link-lib=static={library}");
-                }
-            }
             for library in [
                 "ws2_32", "advapi32", "crypt32", "user32", "shell32", "ole32", "gdi32",
             ] {
