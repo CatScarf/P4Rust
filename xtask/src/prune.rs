@@ -164,7 +164,7 @@ impl Prune {
         let output = staging.join(format!("{name}-pruned.lib"));
         let required = Self::members(trace, &format!("{name}.lib"));
         ensure!(
-            !required.is_empty(),
+            !required.is_empty() || name == "libp4script_cstub",
             "Failed to find reachable COFF members: {name}"
         );
         let entries = Self::command(
@@ -229,6 +229,10 @@ impl Prune {
                 .args([
                     "-framework",
                     "CoreFoundation",
+                    "-framework",
+                    "CoreServices",
+                    "-framework",
+                    "ApplicationServices",
                     "-framework",
                     "CoreGraphics",
                     "-framework",

@@ -14,6 +14,7 @@ pub use control::CancellationToken;
 use error::ensure;
 pub use error::{Error, Result, ResultExt};
 pub use output::{Output, RawOutput};
+pub use stream::{CommandStatus, Message, MessageId, ProgressCallback};
 pub use stream::{CommandStream, Event, Progress, Record};
 
 /// Explicit settings for a Perforce connection.

@@ -1,37 +1,9 @@
 use crate::{Command, Output, Result, ResultExt};
 use crate::{capture::Capture, control::Control, native::Native};
 use std::{sync::mpsc, thread, time::Duration};
-
-/// One complete tagged record with ordered fields and their original bytes.
-#[derive(Debug)]
-pub struct Record {
-    pub fields: Vec<(String, String)>,
-    pub raw: Vec<(Vec<u8>, Vec<u8>)>,
-}
-
-/// Progress for one SDK operation, including parallel transfer workers.
-#[derive(Debug)]
-pub struct Progress {
-    pub id: u64,
-    pub kind: u32,
-    pub units: u32,
-    pub description: String,
-    pub total: Option<u64>,
-    pub current: u64,
-    pub finished: bool,
-    pub failed: bool,
-}
-
-/// Live command output; text chunks preserve complete UTF-8 sequences when possible.
-#[derive(Debug)]
-pub enum Event {
-    Text { text: String, raw: Vec<u8> },
-    Binary(Vec<u8>),
-    Record(Record),
-    Warning { message: String, raw: Vec<u8> },
-    Progress(Progress),
-    Completed,
-}
+mod event;
+pub use event::{CommandStatus, Event, Message, MessageId};
+pub use event::{Progress, ProgressCallback, Record};
 
 /// A bounded event iterator that requests cancellation when dropped.
 #[must_use]
@@ -90,12 +62,32 @@ impl CommandStream {
         let mut completed = false;
         for event in &mut self {
             match event.context("Failed to collect P4 event stream")? {
-                Event::Text { raw, .. } => output.raw.text.extend(raw),
+                Event::Text { raw } => output.raw.text.extend(raw),
+                Event::Info { level, raw, .. } => {
+                    output.raw.text.extend_from_slice(&raw);
+                    output.raw.text.push(b'\n');
+                    output.info.push((level, raw));
+                }
                 Event::Binary(bytes) => output.binary.extend(bytes),
                 Event::Record(record) => output.raw.records.push(record.raw),
-                Event::Warning { raw, .. } => output.raw.warnings.push(raw),
+                Event::RecordPartial(record) => output.partial_records.push(record),
+                Event::Message(message) | Event::HandleError(message) => {
+                    if message.severity == 2 {
+                        output.raw.warnings.push(message.raw.clone());
+                    } else if message.severity == 1 {
+                        output.raw.text.extend_from_slice(&message.raw);
+                    }
+                    output.messages.push(message);
+                }
+                Event::OutputError { raw, .. } | Event::NativeError { raw, .. } => {
+                    output.errors.push(raw);
+                }
                 Event::Progress(_) => {}
-                Event::Completed => completed = true,
+                Event::Finished => output.finished_callbacks += 1,
+                Event::Completed(status) => {
+                    output.status = Some(status);
+                    completed = true;
+                }
             }
         }
         crate::error::ensure!(
@@ -133,7 +125,12 @@ impl Iterator for CommandStream {
             }
             match self.receiver.recv_timeout(Duration::from_millis(10)) {
                 Ok(event) => {
-                    if event.is_err() || matches!(event, Ok(Event::Completed)) {
+                    if event.is_err()
+                        || matches!(
+                            event,
+                            Ok(Event::Completed(CommandStatus { success: true, .. }))
+                        )
+                    {
                         self.finished = true;
                         if let Err(error) = self.join() {
                             return Some(Err(error));

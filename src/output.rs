@@ -14,6 +14,12 @@ pub struct Output {
     pub records: Vec<Vec<(String, String)>>,
     pub warnings: Vec<String>,
     pub raw: RawOutput,
+    pub info: Vec<(u8, Vec<u8>)>,
+    pub partial_records: Vec<crate::Record>,
+    pub messages: Vec<crate::Message>,
+    pub errors: Vec<Vec<u8>>,
+    pub finished_callbacks: usize,
+    pub status: Option<crate::CommandStatus>,
 }
 
 impl Output {

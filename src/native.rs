@@ -20,7 +20,7 @@ impl Native {
         input: &str,
         control: &Control,
         capture: &Capture,
-    ) -> Result<()> {
+    ) -> Result<crate::CommandStatus> {
         // This version query has no pointer arguments or runtime side effects.
         ensure!(
             unsafe { ffi::p4rust_abi_version() } == ffi::ABI_VERSION,
@@ -64,7 +64,7 @@ impl Native {
         args: &[&str],
         control: &Control,
         capture: &Capture,
-    ) -> Result<()> {
+    ) -> Result<crate::CommandStatus> {
         let strings: Vec<CString> = args
             .iter()
             .map(|arg| Self::string(arg))

@@ -1,4 +1,6 @@
-use crate::{Event, Progress, Record, Result, ResultExt};
+mod message;
+use crate::{CommandStatus, Event, Progress, Record, Result};
+use crate::{Message, ProgressCallback, ResultExt};
 use crate::{control::Control, error::ensure, ffi};
 use std::{
     ffi::c_void,
@@ -11,7 +13,8 @@ use std::{
 struct State {
     record: Option<Vec<(Vec<u8>, Vec<u8>)>>,
     record_bytes: usize,
-    text: Vec<u8>,
+    partial: bool,
+    error_count: Option<i32>,
     failure: Option<crate::Error>,
 }
 
@@ -53,29 +56,33 @@ impl Capture {
         }
     }
 
-    // Process a callback without allowing parallel records or UTF-8 fragments to interleave.
+    // Preserve each SDK callback boundary while assembling atomic tagged records.
     fn receive(&self, event: u32, data: &[u8], value: &[u8], state: &mut State) -> Result<()> {
         match event {
             ffi::TEXT => {
-                for chunk in data.chunks(16_384) {
-                    state.text.extend_from_slice(chunk);
-                    self.text(state, false)
-                        .context("Failed to emit text event")?;
-                }
+                ensure!(
+                    data.len() <= 1_048_576,
+                    "Failed to bound text callback size"
+                );
+                self.send(Ok(Event::Text { raw: data.to_vec() }))
+                    .context("Failed to emit text callback")?;
             }
             ffi::BINARY => {
-                for chunk in data.chunks(16_384) {
-                    self.send(Ok(Event::Binary(chunk.to_vec())))
-                        .context("Failed to emit binary event")?;
-                }
+                ensure!(
+                    data.len() <= 1_048_576,
+                    "Failed to bound binary callback size"
+                );
+                self.send(Ok(Event::Binary(data.to_vec())))
+                    .context("Failed to emit binary callback")?;
             }
-            ffi::RECORD => {
+            ffi::RECORD | ffi::RECORD_PARTIAL => {
                 ensure!(
                     state.record.is_none(),
                     "Failed to begin record: previous record is incomplete"
                 );
                 state.record = Some(Vec::new());
                 state.record_bytes = 0;
+                state.partial = event == ffi::RECORD_PARTIAL;
             }
             ffi::FIELD => {
                 ensure!(
@@ -103,57 +110,68 @@ impl Capture {
             ffi::RECORD_END => self
                 .record(state)
                 .context("Failed to emit complete record")?,
-            ffi::WARNING => {
-                ensure!(data.len() <= 1_048_576, "Failed to bound warning size");
-                self.send(Ok(Event::Warning {
-                    message: String::from_utf8_lossy(data).into_owned(),
-                    raw: data.to_vec(),
-                }))
-                .context("Failed to emit warning")?;
-            }
-            ffi::ERROR => {
-                let message = String::from_utf8_lossy(&data[..data.len().min(1_048_576)]);
-                return Err(crate::Error::new(format!(
-                    "Failed to execute P4 command: {message}"
-                )));
-            }
             ffi::PROGRESS => self
                 .progress(data, value)
                 .context("Failed to emit SDK progress")?,
+            _ => self
+                .other(event, data, value, state)
+                .context("Failed to emit SDK callback")?,
+        }
+        Ok(())
+    }
+
+    // Forward native message, information, completion, and bridge failure callbacks.
+    fn other(&self, event: u32, data: &[u8], value: &[u8], state: &mut State) -> Result<()> {
+        ensure!(data.len() <= 1_048_576, "Failed to bound SDK callback size");
+        let output = match event {
+            ffi::INFO => {
+                ensure!(value.len() == 1, "Failed to read native information level");
+                Event::Info {
+                    level: value[0],
+                    text: String::from_utf8_lossy(data).into_owned(),
+                    raw: data.to_vec(),
+                }
+            }
+            ffi::MESSAGE | ffi::HANDLE_ERROR => {
+                let message =
+                    Message::decode(data, value).context("Failed to decode SDK Error object")?;
+                if event == ffi::MESSAGE {
+                    Event::Message(message)
+                } else {
+                    Event::HandleError(message)
+                }
+            }
+            ffi::OUTPUT_ERROR => Event::OutputError {
+                text: String::from_utf8_lossy(data).into_owned(),
+                raw: data.to_vec(),
+            },
+            ffi::ERROR => {
+                let text = String::from_utf8_lossy(data).into_owned();
+                self.send(Ok(Event::NativeError {
+                    text: text.clone(),
+                    raw: data.to_vec(),
+                }))
+                .context("Failed to emit bridge error")?;
+                return Err(crate::Error::new(format!(
+                    "Failed to execute native command: {text}"
+                )));
+            }
+            ffi::FINISHED => Event::Finished,
+            ffi::STATUS => {
+                state.error_count = Some(i32::from_ne_bytes(
+                    data.try_into()
+                        .context("Failed to decode SDK error count")?,
+                ));
+                return Ok(());
+            }
             _ => {
                 return Err(crate::Error::new(format!(
                     "Failed to collect unknown native event: {event}"
                 )));
             }
-        }
-        Ok(())
-    }
-
-    // Preserve incomplete UTF-8 tails until a following callback completes the sequence.
-    fn text(&self, state: &mut State, final_chunk: bool) -> Result<()> {
-        let mut end = state.text.len();
-        let mut position = 0;
-        while !final_chunk && position < state.text.len() {
-            match std::str::from_utf8(&state.text[position..]) {
-                Ok(_) => break,
-                Err(error) => {
-                    position += error.valid_up_to();
-                    if let Some(length) = error.error_len() {
-                        position += length;
-                    } else {
-                        end = position;
-                        break;
-                    }
-                }
-            }
-        }
-        if end != 0 {
-            let raw: Vec<_> = state.text.drain(..end).collect();
-            let text = String::from_utf8_lossy(&raw).into_owned();
-            self.send(Ok(Event::Text { text, raw }))
-                .context("Failed to deliver decoded text")?;
-        }
-        Ok(())
+        };
+        self.send(Ok(output))
+            .context("Failed to forward native callback")
     }
 
     // Emit ordered display fields and raw bytes only after the native record boundary.
@@ -171,7 +189,13 @@ impl Capture {
                 )
             })
             .collect();
-        self.send(Ok(Event::Record(Record { fields, raw })))
+        let record = Record { fields, raw };
+        let event = if state.partial {
+            Event::RecordPartial(record)
+        } else {
+            Event::Record(record)
+        };
+        self.send(Ok(event))
             .context("Failed to deliver tagged record")
     }
 
@@ -187,13 +211,24 @@ impl Capture {
         }
         self.send(Ok(Event::Progress(Progress {
             id: values[0] as u64,
-            kind: values[1] as u32,
-            units: values[2] as u32,
+            kind: values[1] as i32,
+            units: values[2] as i32,
             description: String::from_utf8_lossy(description).into_owned(),
-            total: u64::try_from(values[3]).ok(),
-            current: values[4].max(0) as u64,
-            finished: values[5] != 0,
-            failed: values[6] != 0,
+            raw_description: description.to_vec(),
+            total: values[3],
+            current: values[4],
+            callback: match values[5] {
+                1 => ProgressCallback::Description,
+                2 => ProgressCallback::Total,
+                3 => ProgressCallback::Update,
+                4 => ProgressCallback::Done,
+                _ => {
+                    return Err(crate::Error::new(
+                        "Failed to identify native progress callback",
+                    ));
+                }
+            },
+            failure: values[6] as i32,
         })))
         .context("Failed to deliver progress event")
     }
@@ -261,31 +296,58 @@ impl Capture {
         }
     }
 
-    // Validate native completion and flush the final incomplete text sequence.
-    pub(crate) fn finish(&self, status: i32) -> Result<()> {
+    // Preserve the bridge return code after all native callbacks and cleanup finish.
+    pub(crate) fn finish(&self, exit_code: i32) -> Result<CommandStatus> {
         let mut state = self
             .state
             .lock()
             .map_err(|_| crate::Error::new("Failed to finish callbacks: poisoned mutex"))?;
-        self.text(&mut state, true)
-            .context("Failed to flush final text event")?;
+        let status = CommandStatus {
+            exit_code,
+            error_count: state.error_count,
+            success: exit_code == 0 && state.failure.is_none() && state.record.is_none(),
+        };
         if let Some(error) = state.failure.take() {
-            return Err(error).context("Failed to capture P4 command output");
+            return Err(error.with_status(status)).context("Failed to capture P4 command output");
         }
-        ensure!(
-            status == 0,
-            "Failed to execute native P4 command: native status {status}"
-        );
-        ensure!(
-            state.record.is_none(),
-            "Failed to collect command output: incomplete record"
-        );
-        Ok(())
+        if state.record.is_some() {
+            return Err(
+                crate::Error::new("Failed to collect command output: incomplete record")
+                    .with_status(status),
+            );
+        }
+        Ok(status)
     }
 
     // Deliver exactly one completion or failure after the native session is cleaned up.
-    pub(crate) fn complete(&self, result: Result<()>) {
-        if let Err(error) = self.send(result.map(|()| Event::Completed))
+    pub(crate) fn complete(&self, result: Result<CommandStatus>) {
+        let status = match &result {
+            Ok(status) => Some(*status),
+            Err(error) => error.command_status(),
+        };
+        let result = (|| -> Result<()> {
+            if let Some(status) = status {
+                self.send(Ok(Event::Completed(status)))
+                    .context("Failed to emit command status")?;
+            }
+            let result = result.and_then(|status| {
+                if status.success {
+                    Ok(())
+                } else {
+                    Err(crate::Error::new(format!(
+                        "Failed to execute P4 command: native exit code {}",
+                        status.exit_code
+                    ))
+                    .with_status(status))
+                }
+            });
+            if let Err(error) = result {
+                self.send(Err(error))
+                    .context("Failed to emit command failure")?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = result
             && self.control.error().is_none()
         {
             eprintln!("{error}");

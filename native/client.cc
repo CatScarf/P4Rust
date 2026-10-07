@@ -2,7 +2,6 @@
 #include <clientapi.h>
 #include <p4libs.h>
 #include <clientprog.h>
-#include <algorithm>
 #include <array>
 #include <atomic>
 #include <mutex>
@@ -98,6 +97,7 @@ public:
     Interrupt* interrupt = nullptr;
     std::recursive_mutex mutex;
     std::atomic<int64_t> next_progress{0};
+    std::atomic<bool> command_failed{false};
 
     // Copy event bytes to the caller without sharing allocator ownership.
     void Emit(uint32_t event, const char* data = nullptr, size_t length = 0,
@@ -126,9 +126,8 @@ public:
     }
 
     // Collect informational output from the server.
-    void OutputInfo(char, const char* data) override {
-        Emit(P4RUST_TEXT, data, std::strlen(data));
-        Emit(P4RUST_TEXT, "\n", 1);
+    void OutputInfo(char level, const char* data) override {
+        Emit(P4RUST_INFO, data, std::strlen(data), &level, 1);
     }
 
     // Preserve binary command output without text conversion.
@@ -138,8 +137,19 @@ public:
 
     // Preserve each tagged record and its field order.
     void OutputStat(StrDict* dictionary) override {
+        Record(dictionary, P4RUST_RECORD);
+    }
+
+    // Preserve a partial tagged callback while retaining the SDK's default accumulation.
+    int OutputStatPartial(StrDict* dictionary) override {
+        Record(dictionary, P4RUST_RECORD_PARTIAL);
+        return 0;
+    }
+
+    // Copy an atomic tagged callback with its original field order.
+    void Record(StrDict* dictionary, uint32_t event) {
         std::lock_guard<std::recursive_mutex> lock(mutex);
-        Emit(P4RUST_RECORD);
+        Emit(event);
         StrRef key, value;
         for (int index = 0; dictionary->GetVar(index, key, value); ++index)
             Emit(P4RUST_FIELD, key.Text(), key.Length(), value.Text(), value.Length());
@@ -157,18 +167,33 @@ public:
 
     // Construct progress metadata with the SDK's supplied transfer size.
     ClientProgress* CreateProgress(int type, P4INT64 size) override;
-    // Separate warning messages from command failures.
+    // Preserve structured server messages without the default callback redirection.
+    void Message(Error* error) override { ErrorEvent(error, P4RUST_MESSAGE); }
+
+    // Preserve legacy structured errors and warnings as distinct SDK callbacks.
     void HandleError(Error* error) override {
+        ErrorEvent(error, P4RUST_HANDLE_ERROR);
+    }
+
+    // Serialize every SDK error identifier, format, and parameter without losing metadata.
+    void ErrorEvent(Error* error, uint32_t event) {
+        std::lock_guard<std::recursive_mutex> lock(mutex);
         StrBuf message;
         error->Fmt(&message);
-        const uint32_t event = error->GetSeverity() >= E_FAILED ? P4RUST_ERROR : P4RUST_WARNING;
-        Emit(event, message.Text(), message.Length());
+        StrBuf serialized;
+        error->Marshall2(serialized);
+        if (error->GetSeverity() >= E_FAILED) command_failed.store(true);
+        Emit(event, message.Text(), message.Length(), serialized.Text(), serialized.Length());
     }
 
     // Capture legacy server errors instead of printing them to the console.
     void OutputError(const char* message) override {
-        Emit(P4RUST_ERROR, message, std::strlen(message));
+        command_failed.store(true);
+        Emit(P4RUST_OUTPUT_ERROR, message, std::strlen(message));
     }
+
+    // Forward SDK completion separately from post-cleanup command completion.
+    void Finished() override { Emit(P4RUST_FINISHED); }
 };
 
 class Progress final : public ClientProgress {
@@ -176,6 +201,7 @@ public:
     User& user;
     std::array<int64_t, 7> values;
     std::string description;
+    std::mutex mutex;
 
     // Initialize isolated metadata for one SDK progress operation.
     Progress(User& owner, int type, int64_t total)
@@ -183,23 +209,33 @@ public:
 
     // Publish a bounded description and its SDK measurement unit.
     void Description(const StrPtr* text, int units) override {
-        description.assign(text->Text(), std::min<size_t>(text->Length(), 16384));
+        std::lock_guard<std::mutex> lock(mutex);
+        description.assign(text->Text(), text->Length());
         values[2] = units;
+        values[5] = 1;
         Emit();
     }
 
     // Publish the expected amount of work when the SDK supplies it.
-    void Total(long total) override { values[3] = total; Emit(); }
+    void Total(long total) override {
+        std::lock_guard<std::mutex> lock(mutex);
+        values[3] = total; values[5] = 2; Emit();
+    }
 
     // Publish completed work and cooperate with cancellation from any SDK worker.
     int Update(long current) override {
+        std::lock_guard<std::mutex> lock(mutex);
         values[4] = current;
+        values[5] = 3;
         Emit();
         return user.interrupt && !user.interrupt->IsAlive();
     }
 
     // Publish the final progress status without completing the enclosing command.
-    void Done(int fail) override { values[5] = 1; values[6] = fail; Emit(); }
+    void Done(int fail) override {
+        std::lock_guard<std::mutex> lock(mutex);
+        values[5] = 4; values[6] = fail; Emit();
+    }
 
     // Copy fixed-width metadata through the synchronous callback contract.
     void Emit() {
@@ -247,24 +283,26 @@ public:
     }
 
     // Open a native connection and pair it with exactly one finalization.
-    void Open() {
+    void Open(User& user) {
         Error error;
         initialized = true;
         client.Init(&error);
+        if (error.Test()) user.HandleError(&error);
         Check(error, "Failed to initialize P4 connection");
     }
 
     // Close the connection and report transport errors explicitly.
-    void Close() {
+    void Close(User& user) {
         Error error;
         initialized = false;
         client.Final(&error);
+        if (error.Test()) user.HandleError(&error);
         Check(error, "Failed to finalize P4 connection");
     }
 };
 
 // Execute a command while keeping argument storage alive through Run.
-void execute(const p4rust_options_v1& options, const char* command, int32_t argc,
+int32_t execute(const p4rust_options_v1& options, const char* command, int32_t argc,
              const char* const* args, p4rust_callback_v1 callback, void* context,
              p4rust_alive_v1 alive, void* control) {
     static Runtime runtime;
@@ -275,14 +313,14 @@ void execute(const p4rust_options_v1& options, const char* command, int32_t argc
     interrupt.Check();
     Session session;
     session.Configure(options);
-    session.Open();
-    if (alive) session.client.SetBreak(&interrupt);
-    interrupt.Check();
     User user;
     user.callback = callback;
     user.context = context;
     user.input = options.input;
     user.interrupt = alive ? &interrupt : nullptr;
+    if (alive) session.client.SetBreak(&interrupt);
+    session.Open(user);
+    interrupt.Check();
     std::vector<std::string> storage;
     std::vector<char*> pointers;
     storage.reserve(static_cast<size_t>(argc));
@@ -291,7 +329,10 @@ void execute(const p4rust_options_v1& options, const char* command, int32_t argc
     session.client.SetArgv(static_cast<int>(pointers.size()), pointers.data());
     interrupt.Check();
     session.client.Run(command, &user);
-    session.Close();
+    const int32_t errors = session.client.GetErrors();
+    user.Emit(P4RUST_STATUS, reinterpret_cast<const char*>(&errors), sizeof(errors));
+    session.Close(user);
+    return errors != 0 || user.command_failed.load() || interrupt.failed.load() ? 1 : 0;
 }
 }
 
@@ -318,8 +359,7 @@ extern "C" int32_t p4rust_execute_controlled_v1(const p4rust_options_v1* options
             throw std::runtime_error("Failed to validate ABI v1 arguments");
         for (int32_t index = 0; index < argc; ++index)
             if (!argv[index]) throw std::runtime_error("Failed to validate native argument");
-        p4rust::execute(*options, command, argc, argv, callback, context, alive, control);
-        return 0;
+        return p4rust::execute(*options, command, argc, argv, callback, context, alive, control);
     } catch (const std::exception& error) {
         callback(context, P4RUST_ERROR, reinterpret_cast<const uint8_t*>(error.what()),
                  std::strlen(error.what()), nullptr, 0);

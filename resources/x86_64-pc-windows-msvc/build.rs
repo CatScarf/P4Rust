@@ -71,6 +71,8 @@ impl Link {
             println!("cargo:rustc-link-lib=c++");
             for framework in [
                 "CoreFoundation",
+                "CoreServices",
+                "ApplicationServices",
                 "CoreGraphics",
                 "Security",
                 "Foundation",

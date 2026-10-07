@@ -5,6 +5,7 @@ use std::{error, fmt};
 pub struct Error {
     message: String,
     source: Option<Box<dyn error::Error + Send + Sync>>,
+    status: Option<crate::CommandStatus>,
 }
 
 /// A result returned by the safe Perforce API.
@@ -16,6 +17,7 @@ impl Error {
         Self {
             message: message.into(),
             source: None,
+            status: None,
         }
     }
 
@@ -24,10 +26,25 @@ impl Error {
         message: impl Into<String>,
         source: impl error::Error + Send + Sync + 'static,
     ) -> Self {
+        let status = (&source as &dyn error::Error)
+            .downcast_ref::<Self>()
+            .and_then(Self::command_status);
         Self {
             message: message.into(),
             source: Some(Box::new(source)),
+            status,
         }
+    }
+
+    /// Inspect native completion even when a failure has additional operation context.
+    pub fn command_status(&self) -> Option<crate::CommandStatus> {
+        self.status
+    }
+
+    // Preserve a bridge return code on native and SDK command failures.
+    pub(crate) fn with_status(mut self, status: crate::CommandStatus) -> Self {
+        self.status = Some(status);
+        self
     }
 }
 
