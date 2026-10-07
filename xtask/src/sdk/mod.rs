@@ -15,7 +15,7 @@ use std::{
 pub(crate) struct Sdk;
 
 impl Sdk {
-    // Verify and extract the pinned Perforce and Jam source archives.
+    // Verify and copy the pinned Perforce and Jam source trees.
     pub(crate) fn prepare(root: &Path) -> Result<()> {
         source::Sources::prepare(root).context("Failed to prepare SDK sources")
     }
@@ -28,16 +28,7 @@ impl Sdk {
     // Build the four static API libraries using the vendor's dependency rules.
     pub(crate) fn build(root: &Path, ssl: &Path, platform: &Platform) -> Result<PathBuf> {
         let source = Self::source(root).context("Failed to find SDK build inputs")?;
-        let rules = source.join("Jamrules");
-        let text = fs::read_to_string(&rules).context("Failed to read SDK production rules")?;
-        fs::write(
-            rules,
-            text.replace(
-                "local _Z = /Zi ;",
-                "local _Z = ; # P4Rust: omit production debug records.",
-            ),
-        )
-        .context("Failed to configure SDK debug policy")?;
+        Self::patch(&source).context("Failed to patch SDK production rules")?;
         let output = root.join("temp/sdk-build").join(&platform.target);
         fs::create_dir_all(&output).context("Failed to create SDK build directory")?;
         let executable = jam::Jam::build(root, platform).context("Failed to build Jam")?;
@@ -83,6 +74,31 @@ impl Sdk {
             );
         }
         Ok(output)
+    }
+
+    // Apply marked compatibility fixes only to the ignored build copy.
+    fn patch(source: &Path) -> Result<()> {
+        let rules = source.join("Jamrules");
+        let text = fs::read_to_string(&rules).context("Failed to read SDK production rules")?;
+        fs::write(
+            rules,
+            text.replace(
+                "local _Z = /Zi ;",
+                "local _Z = ; # P4Rust: omit production debug records.",
+            ),
+        )
+        .context("Failed to configure SDK debug policy")?;
+        let header = source.join("zlib/zutil.h");
+        let text = fs::read_to_string(&header).context("Failed to read vendor zlib header")?;
+        fs::write(
+            header,
+            text.replace(
+                "#if defined(MACOS) || defined(TARGET_OS_MAC)",
+                "/* P4Rust: modern Apple systems provide fdopen. */\n#if !defined(__APPLE__) && (defined(MACOS) || defined(TARGET_OS_MAC))",
+            ),
+        )
+        .context("Failed to correct vendor Apple fdopen detection")?;
+        Ok(())
     }
 
     // Select native compiler settings and a valid Apple SDK explicitly.

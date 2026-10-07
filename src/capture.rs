@@ -182,12 +182,8 @@ impl Capture {
             "Failed to validate SDK progress frame"
         );
         let mut values = [0_i64; 7];
-        for (index, bytes) in metadata.chunks_exact(8).enumerate() {
-            values[index] = i64::from_ne_bytes(
-                bytes
-                    .try_into()
-                    .context("Failed to decode SDK progress value")?,
-            );
+        for (index, bytes) in metadata.as_chunks::<8>().0.iter().enumerate() {
+            values[index] = i64::from_ne_bytes(*bytes);
         }
         self.send(Ok(Event::Progress(Progress {
             id: values[0] as u64,
@@ -271,6 +267,8 @@ impl Capture {
             .state
             .lock()
             .map_err(|_| crate::Error::new("Failed to finish callbacks: poisoned mutex"))?;
+        self.text(&mut state, true)
+            .context("Failed to flush final text event")?;
         if let Some(error) = state.failure.take() {
             return Err(error).context("Failed to capture P4 command output");
         }
@@ -282,16 +280,15 @@ impl Capture {
             state.record.is_none(),
             "Failed to collect command output: incomplete record"
         );
-        self.text(&mut state, true)
-            .context("Failed to flush final text event")
+        Ok(())
     }
 
     // Deliver exactly one completion or failure after the native session is cleaned up.
     pub(crate) fn complete(&self, result: Result<()>) {
-        if let Err(error) = self.send(result.map(|()| Event::Completed)) {
-            if self.control.error().is_none() {
-                eprintln!("{error}");
-            }
+        if let Err(error) = self.send(result.map(|()| Event::Completed))
+            && self.control.error().is_none()
+        {
+            eprintln!("{error}");
         }
     }
 }

@@ -159,10 +159,9 @@ impl Drop for CommandStream {
             .worker
             .as_ref()
             .is_some_and(thread::JoinHandle::is_finished)
+            && let Err(error) = self.join()
         {
-            if let Err(error) = self.join() {
-                eprintln!("{error}");
-            }
+            eprintln!("{error}");
         }
     }
 }
