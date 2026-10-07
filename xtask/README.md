@@ -14,6 +14,8 @@ Sources and their SHA-256 inventory live under `sdk`. Build copies of sources, c
 
 Set `P4RUST_TARGET` to a supported resource directory name; the default is the host. CI uses native runners for six targets. Versions come from each package's `Cargo.toml`; public and resource versions are independent. Verification runs through GitHub Actions, with `cargo clippy --workspace --all-targets --all-features -- -D warnings` and package builds; no tests are included.
 
+Windows x64 and ARM64 Rust builds use the toolchain's bundled `rust-lld` through `.cargo/config.toml`, including xtask and CI. Consumers should set `linker = "rust-lld"` in their own matching `[target.x86_64-pc-windows-msvc]` or `[target.aarch64-pc-windows-msvc]` table; Cargo does not inherit dependency linker configuration.
+
 Production uses the vendor Jam rules with extensions disabled, a target-compatible compiler, Perl, LLVM tools, and NASM on x64. `P4RUST_OBJCOPY`, `P4RUST_STRIP`, and `P4RUST_AR` override archive tools; `P4RUST_JOM` enables parallel MSVC OpenSSL builds. Native pruning retains the complete transitive archive-member closure of all ABI exports.
 
 All external commands use one executor and print `> <command>` before execution. Release publishing requires `GH_TOKEN`; new crates.io versions also require the repository's `CARGO_REGISTRY_TOKEN` Actions secret. Authorization is passed through stdin, never command arguments or files. Uploads reuse the checked CI artifacts and honor registry throttling through curl's `Retry-After` handling.
