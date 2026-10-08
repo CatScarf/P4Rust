@@ -236,6 +236,9 @@ impl Tables {
 
     // Release remaining server records for canonical missing-file checks after every scanner joins.
     pub(super) fn finish_scan(&self, duration: time::Duration) -> Result<()> {
+        self.metadata
+            .compact()
+            .context("Failed to compact completed directory enumeration")?;
         self.scan_nanos.store(
             u64::try_from(duration.as_nanos()).context("Failed to measure scan duration")?,
             atomic::Ordering::Relaxed,

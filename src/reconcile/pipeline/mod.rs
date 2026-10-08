@@ -2,6 +2,7 @@ pub(crate) mod local;
 mod metadata;
 mod names;
 mod path;
+mod radix;
 mod results;
 mod scanner;
 mod tables;

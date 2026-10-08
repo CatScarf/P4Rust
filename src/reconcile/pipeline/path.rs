@@ -35,7 +35,7 @@ impl Path {
     }
 
     // Fold Windows case and platform separators without resolving filesystem links.
-    fn characters(path: &str) -> impl Iterator<Item = char> + '_ {
+    pub(super) fn characters(path: &str) -> impl Iterator<Item = char> + '_ {
         path.chars().flat_map(|character| {
             let character = if cfg!(windows) && character == '\\' {
                 '/'
@@ -48,6 +48,15 @@ impl Path {
                 Some(lowered) => lowered.next(),
                 None => original.take(),
             })
+        })
+    }
+
+    // Stream normalized UTF-8 bytes for allocation-free compressed registry queries.
+    pub(super) fn bytes(path: &str) -> impl Iterator<Item = u8> + '_ {
+        Self::characters(path).flat_map(|character| {
+            let mut bytes = [0; 4];
+            let length = character.encode_utf8(&mut bytes).len();
+            bytes.into_iter().take(length)
         })
     }
 

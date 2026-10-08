@@ -1,14 +1,16 @@
+mod codec;
+
 use super::path::Path;
 use crate::{Result, ResultExt};
 
 struct Entry<T> {
     hash: u64,
     offset: u32,
-    length: u32,
+    ordinal: u32,
     value: T,
 }
 pub(super) struct Names<T> {
-    bytes: String,
+    bytes: codec::Arena,
     entries: Vec<Entry<T>>,
 }
 
@@ -16,7 +18,7 @@ impl<T> Names<T> {
     // Store directory-local names in one arena instead of independent allocations.
     pub(super) fn new() -> Self {
         Self {
-            bytes: String::new(),
+            bytes: codec::Arena::new(),
             entries: Vec::new(),
         }
     }
@@ -30,12 +32,60 @@ impl<T> Names<T> {
         Ok(())
     }
 
-    // Sort the compact index once and release enumeration's spare capacity.
-    pub(super) fn finish(&mut self) {
-        self.entries
-            .sort_unstable_by_key(|entry| (entry.hash, std::cmp::Reverse(entry.offset)));
+    // Share adjacent name prefixes in bounded blocks and keep collision-safe hash lookups.
+    pub(super) fn finish(&mut self) -> Result<()> {
+        self.deduplicate();
+        self.entries.sort_unstable_by(|left, right| {
+            self.bytes
+                .raw(left.offset)
+                .cmp(self.bytes.raw(right.offset))
+        });
+        let mut compressed = codec::Arena::new();
+        let mut previous = "";
+        let mut block = 0;
+        for (index, entry) in self.entries.iter_mut().enumerate() {
+            let name = self.bytes.raw(entry.offset);
+            let ordinal = index as u32 % 8;
+            let prefix = if ordinal == 0 {
+                0
+            } else {
+                name.bytes()
+                    .zip(previous.bytes())
+                    .take_while(|(left, right)| left == right)
+                    .count()
+            };
+            let offset = compressed
+                .append(prefix, &name.as_bytes()[prefix..])
+                .context("Failed to compress directory filename")?;
+            if ordinal == 0 {
+                block = offset;
+            }
+            entry.offset = block;
+            entry.ordinal = ordinal;
+            previous = name;
+        }
+        self.bytes = compressed;
+        self.entries.sort_unstable_by_key(|entry| entry.hash);
         self.entries.shrink_to_fit();
-        self.bytes.shrink_to_fit();
+        self.bytes.compact();
+        Ok(())
+    }
+
+    // Retain the newest normalized spelling before the physical compression order changes.
+    fn deduplicate(&mut self) {
+        self.entries.sort_unstable_by(|left, right| {
+            left.hash
+                .cmp(&right.hash)
+                .then_with(|| {
+                    Path::characters(self.bytes.raw(left.offset))
+                        .cmp(Path::characters(self.bytes.raw(right.offset)))
+                })
+                .then_with(|| right.offset.cmp(&left.offset))
+        });
+        self.entries.dedup_by(|left, right| {
+            left.hash == right.hash
+                && Path::equivalent(self.bytes.raw(left.offset), self.bytes.raw(right.offset))
+        });
     }
 
     // Find a cached value using borrowed name bytes and collision-safe comparison.
@@ -68,31 +118,31 @@ impl<T> Names<T> {
     fn position(&self, name: &str) -> std::result::Result<usize, usize> {
         let hash = Path::hash_of(name);
         let first = self.entries.partition_point(|entry| entry.hash < hash);
+        let mut scratch = codec::Scratch::new();
         for (index, entry) in self.entries.iter().enumerate().skip(first) {
             if entry.hash != hash {
                 break;
             }
-            let start = entry.offset as usize;
-            let end = start + entry.length as usize;
-            if Path::equivalent(&self.bytes[start..end], name) {
+            if Path::equivalent(
+                self.bytes.name(entry.offset, entry.ordinal, &mut scratch),
+                name,
+            ) {
                 return Ok(index);
             }
         }
         Err(first)
     }
 
-    // Validate compact offsets before appending an immutable UTF-8 name to the arena.
+    // Append a standalone original spelling for enumeration or a late missing-path slot.
     fn entry(&mut self, name: &str, value: T) -> Result<Entry<T>> {
-        let offset = u32::try_from(self.bytes.len()).context("Failed to encode name offset")?;
-        let length = u32::try_from(name.len()).context("Failed to encode name length")?;
-        offset
-            .checked_add(length)
-            .context("Failed to fit directory names within 4 GiB")?;
-        self.bytes.push_str(name);
+        let offset = self
+            .bytes
+            .append(0, name.as_bytes())
+            .context("Failed to retain original filename")?;
         Ok(Entry {
             hash: Path::hash_of(name),
             offset,
-            length,
+            ordinal: 0,
             value,
         })
     }

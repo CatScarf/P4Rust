@@ -1,11 +1,12 @@
 use super::{
     local::{Agent, Snapshot},
     names::Names,
-    path::{Path, PathRef},
+    path::Path,
+    radix::Radix,
 };
 use crate::{Result, ResultExt};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     fs,
     path::PathBuf,
     sync::{self, atomic},
@@ -31,7 +32,7 @@ pub(super) struct Directory {
     contents: sync::OnceLock<Box<ContentIndex>>,
 }
 pub(super) struct Metadata {
-    directories: [sync::Mutex<HashMap<Path, Listing>>; 32],
+    directories: [sync::Mutex<Radix<Listing>>; 32],
     pub files: atomic::AtomicU64,
     pub listings: atomic::AtomicU64,
     pub reuses: atomic::AtomicU64,
@@ -39,10 +40,21 @@ pub(super) struct Metadata {
 }
 
 impl Metadata {
+    // Compact each registry shard after the local enumeration workers have joined.
+    pub(super) fn compact(&self) -> Result<()> {
+        for shard in &self.directories {
+            shard
+                .lock()
+                .map_err(|_| crate::Error::new("Failed to compact directory registry"))?
+                .compact();
+        }
+        Ok(())
+    }
+
     // Allocate one command-wide registry shared by enumeration and targeted probes.
     pub(super) fn new() -> Self {
         Self {
-            directories: std::array::from_fn(|_| sync::Mutex::new(HashMap::new())),
+            directories: std::array::from_fn(|_| sync::Mutex::new(Radix::new())),
             files: atomic::AtomicU64::new(0),
             listings: atomic::AtomicU64::new(0),
             reuses: atomic::AtomicU64::new(0),
@@ -58,13 +70,11 @@ impl Metadata {
         let mut directories = self.directories[hash as usize % self.directories.len()]
             .lock()
             .map_err(|_| crate::Error::new("Failed to lock directory registry"))?;
-        let slot = if let Some(slot) = directories.get(PathRef::new(spelling)) {
-            sync::Arc::clone(slot)
-        } else {
-            let slot = sync::Arc::new(sync::OnceLock::new());
-            directories.insert(Path::new(spelling), sync::Arc::clone(&slot));
-            slot
-        };
+        let slot = sync::Arc::clone(
+            directories
+                .get_or_insert_with(spelling, || sync::Arc::new(sync::OnceLock::new()))
+                .context("Failed to retain shared directory slot")?,
+        );
         drop(directories);
         slot.get_or_init(|| {
             self.listings.fetch_add(1, atomic::Ordering::Relaxed);
@@ -118,7 +128,9 @@ impl Metadata {
             self.files.fetch_add(1, atomic::Ordering::Relaxed);
             entries.push(entry.into_path());
         }
-        files.finish();
+        files
+            .finish()
+            .context("Failed to finish compact directory names")?;
         Ok(Directory {
             files: sync::Mutex::new(files),
             entries: sync::Mutex::new(entries),
