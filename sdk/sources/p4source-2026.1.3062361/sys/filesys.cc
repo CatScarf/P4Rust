@@ -158,6 +158,9 @@ FileSys::FileSys()
 	preserveCWD = 0;
 
 	allowStatCache = 0;
+	// PR_002 Start
+	statSnapshotFlags = -1;
+	// PR_002 End
 	statCacheValid = 0;
 	cachedModTime = 0;
 	cachedSize = 0;
@@ -315,6 +318,9 @@ FileSys::Set( const StrPtr &name )
 # endif
 	path.Set( name );
 	statCacheValid = 0;
+	// PR_002 Start
+	statSnapshotFlags = -1;
+	// PR_002 End
 }
 
 void
@@ -336,6 +342,9 @@ FileSys::Set( const StrPtr &name, Error *e )
 # endif
 	path.Set( name );
 	statCacheValid = 0;
+	// PR_002 Start
+	statSnapshotFlags = -1;
+	// PR_002 End
 }
 
 void

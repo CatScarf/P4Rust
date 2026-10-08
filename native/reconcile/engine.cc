@@ -29,6 +29,9 @@ int ReconcileScope::Call(uint32_t operation) {
 // Transfer ownership even when admission fails so Rust can clean up the job.
 void ReconcileScope::Submit(Task* pointer) {
     std::unique_ptr<Task> task(pointer);
+    const auto path = task->request.Get("localPath");
+    p4rust_local_v5 snapshot{};
+    if (!task->local && !path.empty() && Snapshot(path.c_str(), snapshot)) task->Snapshot(snapshot);
     auto fields = task->request.Frame();
     auto* owned = task.release();
     if (callback(scheduler, 1, owned, reinterpret_cast<const uint8_t*>(fields.data()),
@@ -58,6 +61,18 @@ void ReconcileScope::Pump(bool wait) { Call(2); if (!Produce() && wait) Call(3);
 void ReconcileScope::Drain() { while (Pending()) { if (!Produce()) Call(3); } }
 // Include deferred children when deciding whether a stage has completed.
 bool ReconcileScope::Pending() { return !producers.empty() || Call(5) != 0; }
+// Transfer unmatched local slots after both enumerators have finished.
+bool ReconcileScope::Paths(const char* directory, std::vector<PathCandidate>& paths) {
+    if (!callback) return false;
+    const int result = callback(scheduler, 8, &paths, reinterpret_cast<const uint8_t*>(directory), std::strlen(directory));
+    if (result < 0) throw std::runtime_error("Failed to collect Rust local candidates");
+    return result != 0;
+}
+// Preserve server-classified results in table C before delivering their events.
+void ReconcileScope::Output(const std::vector<p4rust_field_v2>& fields) {
+    if (callback && callback(scheduler, 9, nullptr, reinterpret_cast<const uint8_t*>(fields.data()), fields.size() * sizeof(p4rust_field_v2)) < 0)
+        throw std::runtime_error("Failed to retain Rust reconcile result");
+}
 // Stop the connection and join local work while keeping SDK stack cleanup intact.
 void ReconcileScope::Fail(const char* message) noexcept {
     user.command_failed.store(true);
@@ -108,7 +123,13 @@ std::vector<p4rust_field_v2> Fields::Frame() const {
 void Fields::Reply(Client* client) const {
     if (client->protocolServer < 6) client->GetEnv();
     for (const auto& field : values) {
-        if (field.first == "func" || field.first == "data" || field.first == "kind" || field.first == "localPath") continue;
+        if (field.first == "func" || field.first == "data" || field.first == "kind" || field.first == "localPath" ||
+            field.first == "localSize" || field.first == "localTime" || field.first == "localType" ||
+            field.first == "localDigest" || field.first == "cachedDigest" || field.first == "timestampMatch" ||
+            field.first == "localCharset" || field.first == "localCanonicalSize" ||
+            field.first == "candidateDigest" ||
+            field.first == "hashedBytes" ||
+            field.first == "canonicalType") continue;
         StrRef key(field.first.data(), static_cast<int>(field.first.size()));
         StrRef value(field.second.data(), static_cast<int>(field.second.size()));
         client->SetVar(key, value);
@@ -121,6 +142,44 @@ void Fields::Reply(Client* client) const {
 Task::Task(ReconcileScope& owner, const char* kind) : scope(owner) { request.Set("kind", kind); result.Set("kind", kind); }
 // Check cancellation before each local filesystem operation.
 void Task::Check() const { if (scope.user.interrupt) scope.user.interrupt->Check(); }
+// Copy precomputed contents with their exact SDK interpretation and stat metadata.
+void Task::Snapshot(const p4rust_local_v5& snapshot) {
+    local = snapshot;
+    request.Set("localSize", std::to_string(snapshot.size));
+    request.Set("localTime", std::to_string(snapshot.time));
+    if (!snapshot.hashed) return;
+    request.Set("localDigest", std::string(reinterpret_cast<const char*>(snapshot.digest), 32));
+    request.Set("localType", std::to_string(snapshot.file_type));
+    request.Set("localCharset", std::to_string(snapshot.charset));
+    request.Set("localCanonicalSize", std::to_string(snapshot.canonical_size));
+}
+// Inject metadata once instead of repeating stat calls on the comparison worker.
+void Task::Apply(FileSys& file) const {
+    if (local) file.UseStatSnapshot(local->stat, local->size, file.IsSymlink() ? local->link_time : local->time);
+}
+// Retrieve the command-wide Rust metadata registry without owning another SDK connection.
+bool ReconcileScope::Snapshot(const char* path, p4rust_local_v5& snapshot) {
+    const int result = callback(scheduler, 10, &snapshot, reinterpret_cast<const uint8_t*>(path), std::strlen(path));
+    if (result < 0) throw std::runtime_error("Failed to retrieve shared file metadata");
+    return result != 0;
+}
+// Preserve one metadata snapshot for SDK-created similarity-match files.
+void ApplyMetadata(FileSys* file) {
+    auto* scope = ReconcileScope::Current();
+    p4rust_local_v5 snapshot{};
+    if (scope && file && scope->Snapshot(file->Name(), snapshot))
+        file->UseStatSnapshot(snapshot.stat, snapshot.size, file->IsSymlink() ? snapshot.link_time : snapshot.time);
+}
+// Reject cached data whenever file contents or canonical conversion settings may differ.
+bool Task::Reuse(FileSys& file, StrBuf& digest, offL_t* size) const {
+    if (!request.Has("localDigest") || request.Get("localType") != std::to_string(file.GetType()) ||
+        request.Get("localCharset") != std::to_string(file.GetContentCharSetPriv()) ||
+        request.Get("localSize") != std::to_string(file.GetSize()) ||
+        request.Get("localTime") != std::to_string(file.StatModTime())) return false;
+    digest.Set(request.Get("localDigest").c_str());
+    if (size) *size = StrRef(request.Get("localCanonicalSize").c_str()).Atoi64();
+    return true;
+}
 // Preserve SDK diagnostics at native computation boundaries.
 void Task::CheckError(Error& error, const char* operation) {
     if (!error.Test()) return;
@@ -154,7 +213,7 @@ void Barrier(Client* client) {
 // Poll command cancellation from an isolated SDK worker without accessing its connection.
 bool WorkerAlive() {
     auto* scope = reconcile_task ? &reconcile_task->scope : ReconcileScope::Current();
-    return !scope || !scope->user.interrupt || scope->user.interrupt->IsAlive();
+    return ScanAlive() && (!scope || !scope->user.interrupt || scope->user.interrupt->IsAlive());
 }
 // Install task-local cancellation for canonical SDK reads on this worker.
 TaskThread::TaskThread(Task* task) : previous(reconcile_task) { reconcile_task = task; }
@@ -166,3 +225,4 @@ TaskThread::~TaskThread() { reconcile_task = previous; }
 #include "scan.cc"
 #include "moves.cc"
 #include "exports.cc"
+#include "pipeline/local.cc"

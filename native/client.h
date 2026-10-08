@@ -64,6 +64,26 @@ const uint8_t* p4rust_reconcile_error_v3(void*, size_t*);
 // Destroy an exclusively owned task after all callbacks finish.
 void p4rust_reconcile_drop_v3(void*);
 
+typedef struct p4rust_local_v5 {
+    uint64_t size;
+    int64_t time;
+    uint64_t canonical_size;
+    int32_t file_type, hashed;
+    int32_t charset, stat;
+    int64_t link_time;
+    uint8_t digest[32];
+} p4rust_local_v5;
+// Create independent SDK scan state on the calling worker.
+int32_t p4rust_scan_open_v5(const char*, const char*, int32_t, p4rust_alive_v1, void*, void**);
+// Apply ignore rules and optionally calculate the SDK's canonical MD5.
+int32_t p4rust_scan_file_v5(void*, const char*, int32_t, int32_t, p4rust_local_v5*);
+// Destroy a scan agent on its creating worker.
+void p4rust_scan_close_v5(void*);
+// Attach a completed local snapshot to an exclusively owned native task.
+int32_t p4rust_reconcile_snapshot_v5(void*, const p4rust_local_v5*);
+// Copy one unmatched path into a synchronous native candidate sink.
+int32_t p4rust_reconcile_path_v5(void*, const char*, const p4rust_local_v5*);
+
 #ifdef __cplusplus
 }
 #endif

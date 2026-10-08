@@ -16,6 +16,8 @@ namespace p4rust {
 class Runtime {
 public:
     bool initialized = false;
+    // Share one native runtime initialization between connection and local scan threads.
+    static void Ready() { static Runtime runtime; }
 
     // Initialize Perforce runtime support once for the process.
     Runtime() {
@@ -163,6 +165,9 @@ public:
             bytes += key_length + value_length;
             fields.push_back({reinterpret_cast<const uint8_t*>(key.Text()), key_length,
                               reinterpret_cast<const uint8_t*>(value.Text()), value_length});
+        }
+        if (event == P4RUST_RECORD) {
+            if (auto* scope = ReconcileScope::Current()) scope->Output(fields);
         }
         Emit(event, reinterpret_cast<const char*>(fields.data()),
              fields.size() * sizeof(p4rust_field_v2));
@@ -317,7 +322,7 @@ int32_t execute(const p4rust_options_v1& options, const char* command, int32_t a
              const char* const* args, p4rust_callback_v1 callback, void* context,
              p4rust_alive_v1 alive, void* control, p4rust_reconcile_v3 reconcile,
              void* scheduler, uint32_t moves) {
-    static Runtime runtime;
+    Runtime::Ready();
     ThreadScope thread;
     Interrupt interrupt;
     interrupt.callback = alive;
@@ -353,7 +358,7 @@ int32_t execute(const p4rust_options_v1& options, const char* command, int32_t a
 }
 
 // Return the ABI contract implemented by this precompiled bridge.
-extern "C" uint32_t p4rust_abi_version(void) { return 3; }
+extern "C" uint32_t p4rust_abi_version(void) { return 5; }
 
 // Contain all C++ exceptions before returning across the C ABI boundary.
 extern "C" int32_t p4rust_execute_v1(const p4rust_options_v1* options,
@@ -378,7 +383,7 @@ extern "C" int32_t p4rust_execute_reconcile_v3(const p4rust_options_v1* options,
     p4rust_reconcile_v3 reconcile, void* scheduler, uint32_t moves) {
     if (!callback) return 1;
     try {
-        if (!options || options->abi_version != 3 || !command || argc < 0 ||
+        if (!options || options->abi_version != 5 || !command || argc < 0 ||
             (argc && !argv) || !options->port || !options->user || !options->client ||
             !options->cwd || !options->charset || !options->input || (alive && !control))
             throw std::runtime_error("Failed to validate bridge arguments");

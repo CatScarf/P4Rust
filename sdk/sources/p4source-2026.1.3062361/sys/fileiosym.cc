@@ -153,6 +153,9 @@ FileIOSymlink::StatAccessTime()
 P4INT64
 FileIOSymlink::StatModTime()
 {
+	// PR_002 Start
+	if( statSnapshotFlags >= 0 ) return cachedModTime;
+	// PR_002 End
 # ifdef OS_NT
 	P4INT64 t = FileIO::StatModTime();
 	return t >= 0 ? t : 0;

@@ -1,4 +1,4 @@
-//! Raw bridge protocol v3; callers own buffers and must uphold C pointer validity.
+//! Raw bridge protocol v5; callers own buffers and must uphold C pointer validity.
 
 use std::ffi::{c_char, c_void};
 
@@ -54,6 +54,36 @@ pub struct Options {
 }
 
 unsafe extern "C" {
+    /// Create a thread-owned SDK ignore and digest agent without a server connection.
+    pub fn p4rust_scan_open_v5(
+        cwd: *const c_char,
+        charset: *const c_char,
+        ignore: i32,
+        alive: Alive,
+        control: *mut c_void,
+        output: *mut *mut c_void,
+    ) -> i32;
+    /// Probe a local path with SDK ignore, file classification, and canonical digest rules.
+    pub fn p4rust_scan_file_v5(
+        agent: *mut c_void,
+        path: *const c_char,
+        directory: i32,
+        hashes: i32,
+        output: *mut crate::reconcile::pipeline::local::Snapshot,
+    ) -> i32;
+    /// Release scan policy and SDK thread state on their creating thread.
+    pub fn p4rust_scan_close_v5(agent: *mut c_void);
+    /// Attach a local snapshot to an exclusively owned comparison task.
+    pub fn p4rust_reconcile_snapshot_v5(
+        task: *mut c_void,
+        snapshot: *const crate::reconcile::pipeline::local::Snapshot,
+    ) -> i32;
+    /// Append an owned path to a synchronous native candidate sink.
+    pub fn p4rust_reconcile_path_v5(
+        sink: *mut c_void,
+        path: *const c_char,
+        snapshot: *const crate::reconcile::pipeline::local::Snapshot,
+    ) -> i32;
     /// Execute reconciliation with an owned Rust scheduler and synchronous protocol callbacks.
     pub fn p4rust_execute_reconcile_v3(
         options: *const Options,

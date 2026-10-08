@@ -133,6 +133,11 @@ impl Prune {
                 "/EXPORT:p4rust_reconcile_commit_v3",
                 "/EXPORT:p4rust_reconcile_error_v3",
                 "/EXPORT:p4rust_reconcile_drop_v3",
+                "/EXPORT:p4rust_scan_open_v5",
+                "/EXPORT:p4rust_scan_file_v5",
+                "/EXPORT:p4rust_scan_close_v5",
+                "/EXPORT:p4rust_reconcile_snapshot_v5",
+                "/EXPORT:p4rust_reconcile_path_v5",
             ])
             .arg(format!(
                 "/OUT:{}",

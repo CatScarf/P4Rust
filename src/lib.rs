@@ -15,6 +15,7 @@ pub use control::CancellationToken;
 use error::ensure;
 pub use error::{CommandStatus, Error, Result, ResultExt};
 pub use output::{Output, RawOutput};
+pub use reconcile::ReconcileStatistics;
 pub use reconcile::{FastReconcile, ReconcileHandler, ReconcileKind};
 pub use reconcile::{ReconcileReply, ReconcileRequest, ReconcileStatus};
 pub use stream::{CommandStream, Event, Progress, Record};

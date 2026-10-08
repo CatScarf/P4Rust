@@ -20,6 +20,8 @@
 #include <utility>
 #include <map>
 #include <deque>
+#include <optional>
+#include "pipeline/cache.h"
 
 namespace p4rust {
 class User;
@@ -34,7 +36,7 @@ public:
     Client* client = nullptr;
     User& user;
     uint32_t move_workers;
-    std::map<std::string, std::string> digest_cache;
+    std::map<std::string, CachedDigest> digest_cache;
     // Install command-local scheduling without sharing state between connections.
     ReconcileScope(User&, p4rust_reconcile_v3, void*, uint32_t);
     // Join every Rust worker before SDK connection state is destroyed.
@@ -57,6 +59,12 @@ public:
     void Drain();
     // Inspect lazy children and Rust-owned work together.
     bool Pending();
+    // Read unmatched local paths without repeating the filesystem enumeration.
+    bool Paths(const char*, std::vector<PathCandidate>&);
+    // Retain final SDK output in the Rust result table.
+    void Output(const std::vector<p4rust_field_v2>&);
+    // Borrow one cached snapshot on the SDK connection thread.
+    bool Snapshot(const char*, p4rust_local_v5&);
     // Expose only the active scheduling context on the connection thread.
     static ReconcileScope* Current();
 };
@@ -77,12 +85,15 @@ public:
     // Send a frozen confirmation without copying the dispatcher's current request.
     void Reply(Client*) const;
 };
+// Inspect interruption state on an independent local scanning worker.
+bool ScanAlive();
 
 class Task {
 public:
     ReconcileScope& scope;
     Fields request, result;
     std::string diagnostic;
+    std::optional<p4rust_local_v5> local;
     // Capture the command context and category for one exclusively owned job.
     Task(ReconcileScope&, const char*);
     // Release isolated SDK objects after worker execution and owner-thread commit.
@@ -93,6 +104,12 @@ public:
     virtual void Commit(int) = 0;
     // Check the shared interruption callback without acquiring application locks.
     void Check() const;
+    // Attach canonical local metadata without exposing it to the RPC confirmation.
+    void Snapshot(const p4rust_local_v5&);
+    // Install the task's immutable metadata on each SDK file interpretation.
+    void Apply(FileSys&) const;
+    // Borrow a matching local digest and its canonical byte count.
+    bool Reuse(FileSys&, StrBuf&, offL_t* = nullptr) const;
     // Format a contextual SDK error before returning across the ABI.
     static void CheckError(Error&, const char*);
 };

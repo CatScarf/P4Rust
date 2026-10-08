@@ -508,6 +508,13 @@ class FileSys {
 	// ext4 but meaningful on NFS-backed workspaces.
 
 	void		EnableStatCache( int on = 1 ) { allowStatCache = on; }
+	// PR_002 Start
+	// Install one command-owned metadata snapshot for every subsequent file query.
+	void UseStatSnapshot( int flags, offL_t size, P4INT64 time ) {
+	    statSnapshotFlags = flags; cachedSize = size; cachedModTime = time;
+	    allowStatCache = statCacheValid = 1;
+	}
+	// PR_002 End
 
     protected:
 
@@ -523,6 +530,9 @@ class FileSys {
 
 	int		allowStatCache;	// opt-in for stat caching
 	int		statCacheValid;	// cache populated by Stat()
+	// PR_002 Start
+	int statSnapshotFlags;
+	// PR_002 End
 	P4INT64		cachedModTime;	// mtime from last Stat()
 	offL_t		cachedSize;	// size from last Stat()
 

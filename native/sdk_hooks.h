@@ -13,6 +13,8 @@ class Error;
 namespace p4rust {
 // Detect a command-local reconcile scheduler without reading shared process state.
 bool ActiveReconcile();
+// Inject the shared metadata snapshot before SDK content matching opens a candidate.
+void ApplyMetadata(FileSys*);
 // Transfer a tracked-file probe to the Rust scheduler after SDK preparation.
 bool ScheduleEdit(Client*, FileSys*);
 // Record a tracked-file result in the SDK's original reconcile handle.

@@ -2854,6 +2854,9 @@ FileIO::Truncate( Error *e )
 int
 FileIO::Stat()
 {
+	// PR_002 Start
+	if( statSnapshotFlags >= 0 ) return statSnapshotFlags;
+	// PR_002 End
 	// Stat & check for missing, special
 
 	int flags = 0;
@@ -3565,6 +3568,9 @@ FileIOBinary::RetryCreate()
 offL_t
 FileIOBinary::GetSize()
 {
+	// PR_002 Start
+	if( statSnapshotFlags >= 0 ) return cachedSize;
+	// PR_002 End
 	// Reuse the size stamped on the FileSys by the most recent Stat()
 	// in the lean-walk path; otherwise fall back to a fresh nt_stat.
 

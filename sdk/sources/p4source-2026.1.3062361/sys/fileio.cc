@@ -446,6 +446,9 @@ FileIO::Truncate( Error *e )
 int
 FileIO::Stat()
 {
+	// PR_002 Start
+	if( statSnapshotFlags >= 0 ) return statSnapshotFlags;
+	// PR_002 End
 	// Stat & check for missing, special
 
 	int flags = 0;
@@ -1138,6 +1141,9 @@ FileIOBinary::Read( char *buf, int len, Error *e )
 offL_t
 FileIOBinary::GetSize()
 {
+	// PR_002 Start
+	if( statSnapshotFlags >= 0 ) return cachedSize;
+	// PR_002 End
 	// When the file isn't open, reuse the size from the most recent
 	// Stat() if the cache is enabled.  An open fd may have grown since
 	// then, so let the fstatL path run live.

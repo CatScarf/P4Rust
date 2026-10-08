@@ -46,6 +46,8 @@ impl Native {
                 crate::reconcile::runtime::Runtime::new(
                     std::sync::Arc::clone(handler),
                     control.clone(),
+                    config,
+                    args,
                 )
             })
             .transpose()

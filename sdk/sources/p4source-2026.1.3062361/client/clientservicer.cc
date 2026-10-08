@@ -1789,6 +1789,9 @@ clientCloseMatch( Client *client, ClientFile *f1, Error *e )
 	    f2 = client->GetUi()->File( f1->file->GetType() );
 	    f2->SetContentCharSetPriv( f1->file->GetContentCharSetPriv() );
 	    f2->Set( *fname );
+	    // PR_002 Start
+	    p4rust::ApplyMetadata(f2);
+	    // PR_002 End
 
 	    if( e->Test() || !f2 )
 	    {

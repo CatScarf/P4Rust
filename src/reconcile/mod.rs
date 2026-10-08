@@ -1,11 +1,21 @@
+pub(crate) mod pipeline;
 mod pool;
 pub(crate) mod runtime;
 mod task;
 use crate::{Result, ResultExt};
+pub use pipeline::Statistics as ReconcileStatistics;
 pub use task::{ReconcileKind, ReconcileReply, ReconcileRequest, ReconcileStatus};
 
 /// An owned strategy for local SDK work; networking stays on the command thread.
 pub trait ReconcileHandler: Send + Sync {
+    /// Enable concurrent local enumeration and server-to-local path pairing.
+    fn pipeline(&self) -> bool {
+        false
+    }
+    /// Observe command-local pipeline counters without retaining borrowed native data.
+    fn progress(&self, _: &ReconcileStatistics) -> Result<()> {
+        Ok(())
+    }
     /// Select the number of independent workers for a local work category.
     fn workers(&self, kind: ReconcileKind) -> usize;
     /// Bound the number of queued, running, and completed requests together.
@@ -83,6 +93,10 @@ impl Default for FastReconcile {
 }
 
 impl ReconcileHandler for FastReconcile {
+    /// Pair the single server enumerator with parallel local scanning and comparisons.
+    fn pipeline(&self) -> bool {
+        true
+    }
     /// Route directory, digest, and move work to separate worker limits.
     fn workers(&self, kind: ReconcileKind) -> usize {
         match kind {

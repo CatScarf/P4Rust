@@ -45,16 +45,20 @@ fn main() -> Result<()> {
 
 `run()` returns `CommandStream`, an `Iterator<Item = Result<Event>>`. Add `.input(form)`, `.timeout(duration)`, or `.cancellation(&token)` before `run()` as needed. Use `collect_output()` to gather the stream into one `Output`.
 
-Use `FastReconcile` to schedule SDK directory scans, canonical file comparisons, and move matching in separate Rust worker pools:
+Use `FastReconcile` for one server connection with parallel local scanning, canonical comparisons, and move matching. Set `Config.charset` to `utf8` for the concurrent path pipeline on Unicode servers; other encodings retain SDK traversal.
+
+The concurrent pipeline uses the cross-platform `walkdir` walker and shares one metadata snapshot per path for each command, including native comparisons.
 
 ```rust
 let events = client
     .command("reconcile")
     .args(["-n", "-m", "D:/workspace/..."])
-    .reconcile_handler(p4rust::FastReconcile::new()
-        .metadata_workers(8)
-        .digest_workers(4)
-        .move_workers(4))
+    .reconcile_handler(
+        p4rust::FastReconcile::new()
+            .metadata_workers(8)
+            .digest_workers(4)
+            .move_workers(4),
+    )
     .run()
     .context("Failed to start reconcile")?;
 
@@ -63,7 +67,7 @@ for event in events {
 }
 ```
 
-`-n` previews changes; remove it to apply them. `-m` retains the SDK timestamp shortcut; omit it to compare contents. SDK mappings, ignore rules, file types, and text conversions still apply. `queue_capacity()` bounds pending tasks and `queue_bytes()` bounds copied request metadata. Custom `ReconcileHandler` implementations inspect scoped requests with owned RPC metadata and use `request.execute()` for SDK computation, optionally overriding a tracked-file decision with `reply.with_status(...)`. Summary output (`status -s`) uses the SDK's short traversal.
+`-n` previews changes; remove it to apply them. `-m` uses the SDK timestamp shortcut; omit it to compare contents. Add `-M` for SDK move detection. A sharded path table pairs server and local records immediately; a digest table matches Add/Delete candidates, and the result table retains final SDK classifications. SDK mappings, ignore rules, file types, text conversions, and similarity matching still apply. `queue_capacity()` and `queue_bytes()` bound pending RPC tasks and metadata. Custom `ReconcileHandler` implementations inspect owned requests and use `request.execute()` for SDK computation; `progress()` receives pipeline counters.
 
 Binding code is licensed under MIT; resource crates retain the Perforce and OpenSSL licenses.
 
