@@ -169,7 +169,7 @@ dependencies = [
 
 [[package]]
 name = "p4rust"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "p4rust-resources-aarch64-apple-darwin",
  "p4rust-resources-aarch64-pc-windows-msvc",
@@ -182,27 +182,27 @@ dependencies = [
 
 [[package]]
 name = "p4rust-resources-aarch64-apple-darwin"
-version = "0.1.4"
+version = "0.1.5"
 
 [[package]]
 name = "p4rust-resources-aarch64-pc-windows-msvc"
-version = "0.1.4"
+version = "0.1.5"
 
 [[package]]
 name = "p4rust-resources-aarch64-unknown-linux-gnu"
-version = "0.1.4"
+version = "0.1.5"
 
 [[package]]
 name = "p4rust-resources-x86_64-apple-darwin"
-version = "0.1.4"
+version = "0.1.5"
 
 [[package]]
 name = "p4rust-resources-x86_64-pc-windows-msvc"
-version = "0.1.4"
+version = "0.1.5"
 
 [[package]]
 name = "p4rust-resources-x86_64-unknown-linux-gnu"
-version = "0.1.4"
+version = "0.1.5"
 
 [[package]]
 name = "proc-macro2"

@@ -2,7 +2,7 @@ use std::hash::{Hash, Hasher};
 
 #[derive(Clone)]
 pub(super) struct Path {
-    original: String,
+    original: Box<str>,
     hash: u64,
 }
 

@@ -13,15 +13,21 @@ use std::{
 
 type Stored<T> = std::result::Result<T, sync::Arc<crate::Error>>;
 type Listing = sync::Arc<sync::OnceLock<Stored<sync::Arc<Directory>>>>;
+type Contents = sync::Arc<sync::OnceLock<Stored<Box<Snapshot>>>>;
 
-struct File {
-    entry: sync::Mutex<Option<Box<walkdir::DirEntry>>>,
-    metadata: sync::OnceLock<Stored<Box<Snapshot>>>,
-    contents: sync::OnceLock<Stored<Box<Snapshot>>>,
+#[derive(Clone, Copy, Default)]
+struct Stat {
+    size: u64,
+    time: i64,
+    flags: i32,
+}
+struct ContentIndex {
+    files: sync::Mutex<HashMap<Path, Contents>>,
 }
 pub(super) struct Directory {
-    files: sync::Mutex<HashMap<Path, sync::Arc<File>>>,
+    files: sync::Mutex<HashMap<Path, Stored<Stat>>>,
     entries: sync::Mutex<Vec<PathBuf>>,
+    contents: sync::OnceLock<Box<ContentIndex>>,
 }
 pub(super) struct Metadata {
     directories: [sync::Mutex<HashMap<Path, Listing>>; 32],
@@ -56,7 +62,7 @@ impl Metadata {
             .clone();
         slot.get_or_init(|| {
             self.listings.fetch_add(1, atomic::Ordering::Relaxed);
-            Self::read_directory(path)
+            self.read_directory(path)
                 .map(sync::Arc::new)
                 .map_err(sync::Arc::new)
         })
@@ -64,7 +70,7 @@ impl Metadata {
         .context("Failed to load shared directory metadata")
     }
     // Preserve names, errors, and symlink boundaries through the portable third-party walker.
-    fn read_directory(path: &std::path::Path) -> Result<Directory> {
+    fn read_directory(&self, path: &std::path::Path) -> Result<Directory> {
         let mut files = HashMap::new();
         let mut entries = Vec::new();
         for entry in walkdir::WalkDir::new(path)
@@ -94,23 +100,24 @@ impl Metadata {
                 entries.push(entry.into_path());
                 continue;
             };
-            files.insert(
-                Path::new(spelling),
-                sync::Arc::new(File {
-                    entry: sync::Mutex::new(Some(Box::new(entry.clone()))),
-                    metadata: sync::OnceLock::new(),
-                    contents: sync::OnceLock::new(),
-                }),
-            );
+            let snapshot = entry
+                .metadata()
+                .context("Failed to read walker metadata")
+                .and_then(|metadata| Self::snapshot(entry.path(), &metadata))
+                .map(Stat::from)
+                .map_err(sync::Arc::new);
+            files.insert(Path::new(spelling), snapshot);
+            self.files.fetch_add(1, atomic::Ordering::Relaxed);
             entries.push(entry.into_path());
         }
         Ok(Directory {
             files: sync::Mutex::new(files),
             entries: sync::Mutex::new(entries),
+            contents: sync::OnceLock::new(),
         })
     }
-    // Share one slot for an existing or missing path, including repeat server records.
-    fn file(&self, path: &std::path::Path) -> Result<sync::Arc<File>> {
+    // Retain one compact metadata value for each existing or missing path.
+    fn raw(&self, path: &std::path::Path) -> Result<Snapshot> {
         let parent = path.parent().context("Failed to find metadata parent")?;
         let directory = self
             .directory(parent)
@@ -120,47 +127,19 @@ impl Metadata {
                 .and_then(std::ffi::OsStr::to_str)
                 .context("Failed to encode metadata filename")?,
         );
-        let slot = directory
+        let snapshot = directory
             .files
             .lock()
             .map_err(|_| crate::Error::new("Failed to lock shared file slots"))?
             .entry(key)
             .or_insert_with(|| {
-                sync::Arc::new(File {
-                    entry: sync::Mutex::new(None),
-                    metadata: sync::OnceLock::new(),
-                    contents: sync::OnceLock::new(),
-                })
+                self.files.fetch_add(1, atomic::Ordering::Relaxed);
+                Ok(Stat::default())
             })
             .clone();
-        Ok(slot)
-    }
-    // Fetch each path's metadata once; Windows entries reuse enumeration-provided metadata.
-    fn raw(&self, file: &File) -> Result<Snapshot> {
-        let reused = file.metadata.get().is_some();
-        let result = file.metadata.get_or_init(|| {
-            self.files.fetch_add(1, atomic::Ordering::Relaxed);
-            (|| {
-                let entry = file
-                    .entry
-                    .lock()
-                    .map_err(|_| crate::Error::new("Failed to lock walker metadata"))?
-                    .take();
-                entry.map_or(Ok(Snapshot::default()), |entry| {
-                    let metadata = entry.metadata().context("Failed to read walker metadata")?;
-                    Self::snapshot(entry.path(), &metadata)
-                })
-            })()
-            .map(Box::new)
-            .map_err(sync::Arc::new)
-        });
-        if reused {
-            self.reuses.fetch_add(1, atomic::Ordering::Relaxed);
-        }
-        result
-            .as_ref()
-            .map(|snapshot| **snapshot)
-            .map_err(sync::Arc::clone)
+        self.reuses.fetch_add(1, atomic::Ordering::Relaxed);
+        snapshot
+            .map(Snapshot::from)
             .context("Failed to reuse file metadata")
     }
     // Match SDK existence, size, timestamps, permissions, and special-file flags.
@@ -233,9 +212,9 @@ impl Metadata {
         })
     }
     // Resolve link targets through the same registry without fetching any path twice.
-    fn resolved(&self, path: &std::path::Path, file: &File) -> Result<Snapshot> {
+    fn resolved(&self, path: &std::path::Path) -> Result<Snapshot> {
         let mut snapshot = self
-            .raw(file)
+            .raw(path)
             .context("Failed to read initial path metadata")?;
         if snapshot.stat & 8 == 0 {
             return Ok(snapshot);
@@ -261,11 +240,8 @@ impl Metadata {
                     .join(target)
             };
             current = Self::lexical(&current);
-            let target = self
-                .file(&current)
-                .context("Failed to obtain link target slot")?;
             snapshot = self
-                .raw(&target)
+                .raw(&current)
                 .context("Failed to reuse target metadata")?;
         }
         snapshot.stat |= 8;
@@ -287,19 +263,20 @@ impl Metadata {
     // Compute canonical content at most once on the metadata slot's elected worker.
     pub(super) fn inspect(&self, path: &str, agent: &Agent<'_>, hashes: bool) -> Result<Snapshot> {
         let path = Self::lexical(std::path::Path::new(path));
-        let file = self
-            .file(&path)
-            .context("Failed to obtain canonical file slot")?;
         if !hashes {
             return self
-                .resolved(&path, &file)
+                .resolved(&path)
                 .context("Failed to reuse timestamp metadata");
         }
-        file.contents
+        let contents = self
+            .contents(&path, true)
+            .context("Failed to obtain canonical content slot")?
+            .context("Failed to initialize content slot")?;
+        contents
             .get_or_init(|| {
                 (|| {
                     let snapshot = self
-                        .resolved(&path, &file)
+                        .resolved(&path)
                         .context("Failed to resolve canonical snapshot")?;
                     let snapshot = agent
                         .cached(
@@ -323,27 +300,84 @@ impl Metadata {
     }
     // Read the shared entry classification without computing contents or following links.
     pub(super) fn basic(&self, path: &str) -> Result<Snapshot> {
-        let file = self
-            .file(std::path::Path::new(path))
-            .context("Failed to obtain basic metadata slot")?;
-        self.raw(&file)
+        self.raw(std::path::Path::new(path))
             .context("Failed to reuse entry classification")
     }
     // Supply native candidates with the same immutable snapshot as local enumeration.
     pub(super) fn snapshot_for(&self, path: &str) -> Result<Snapshot> {
         let path = Self::lexical(std::path::Path::new(path));
-        let file = self
-            .file(&path)
-            .context("Failed to obtain native snapshot slot")?;
-        if let Some(snapshot) = file.contents.get() {
+        let contents = self
+            .contents(&path, false)
+            .context("Failed to obtain native content cache")?;
+        if let Some(snapshot) = contents.as_ref().and_then(|slot| slot.get()) {
             return snapshot
                 .as_ref()
                 .map(|snapshot| **snapshot)
                 .map_err(sync::Arc::clone)
                 .context("Failed to reuse native content snapshot");
         }
-        self.resolved(&path, &file)
+        self.resolved(&path)
             .context("Failed to resolve native metadata")
+    }
+    // Allocate digest synchronization only for paths that actually request canonical contents.
+    fn contents(&self, path: &std::path::Path, create: bool) -> Result<Option<Contents>> {
+        let directory = self
+            .directory(path.parent().context("Failed to find content parent")?)
+            .context("Failed to obtain content directory")?;
+        let index = if create {
+            Some(directory.contents.get_or_init(|| {
+                Box::new(ContentIndex {
+                    files: sync::Mutex::new(HashMap::new()),
+                })
+            }))
+        } else {
+            directory.contents.get()
+        };
+        let Some(index) = index else {
+            return Ok(None);
+        };
+        let mut contents = index
+            .files
+            .lock()
+            .map_err(|_| crate::Error::new("Failed to lock canonical content slots"))?;
+        let key = Path::new(
+            path.file_name()
+                .and_then(std::ffi::OsStr::to_str)
+                .context("Failed to encode content filename")?,
+        );
+        Ok(if create {
+            Some(
+                contents
+                    .entry(key)
+                    .or_insert_with(|| sync::Arc::new(sync::OnceLock::new()))
+                    .clone(),
+            )
+        } else {
+            contents.get(&key).cloned()
+        })
+    }
+}
+
+impl From<Snapshot> for Stat {
+    // Retain only immutable filesystem fields in the command-wide metadata index.
+    fn from(snapshot: Snapshot) -> Self {
+        Self {
+            size: snapshot.size,
+            time: snapshot.time,
+            flags: snapshot.stat,
+        }
+    }
+}
+impl From<Stat> for Snapshot {
+    // Materialize the native ABI snapshot only when a comparison needs it.
+    fn from(stat: Stat) -> Self {
+        Self {
+            size: stat.size,
+            time: stat.time,
+            link_time: stat.time,
+            stat: stat.flags,
+            ..Self::default()
+        }
     }
 }
 

@@ -125,7 +125,7 @@ impl Results {
 
     // Drain unmatched B entries after SDK add/delete decisions have populated C.
     pub(super) fn finish(&mut self) {
-        self.digests.clear();
+        self.digests = HashMap::new();
         self.operations
             .retain(|_, operation| operation.record.is_some());
     }

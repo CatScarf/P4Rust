@@ -1,6 +1,6 @@
 [package]
 name = "p4rust-resources-x86_64-pc-windows-msvc"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 license = "MIT AND BSD-2-Clause AND Apache-2.0"
 description = "Precompiled Perforce C ABI resources for x86_64-pc-windows-msvc"

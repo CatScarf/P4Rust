@@ -6,7 +6,7 @@ struct ScanContext {
     ReconcileScope& scope;
     Fields metadata;
     std::vector<Mapping> mappings;
-    std::vector<std::string> known;
+    StrArray* known;
     std::vector<Fields> output;
     std::unique_ptr<CharSetCvt> contents, names;
     std::string ignore, config;
@@ -17,7 +17,7 @@ struct ScanContext {
     ScanContext(ReconcileScope& owner, Client* client, MapApi*, StrArray* has,
         const char* configuration, int recursive, int ignore_disabled, int digest, int type,
         ClientProgressReport* reporter)
-        : scope(owner), ignore(client->GetIgnoreFile().Text()), config(configuration ? configuration : ""),
+        : scope(owner), known(has), ignore(client->GetIgnoreFile().Text()), config(configuration ? configuration : ""),
           traverse(recursive != 0), no_ignore(ignore_disabled != 0), digests(digest != 0),
           types(type != 0), nocase(client->protocolNocase != 0), charset(client->content_charset),
           xfiles(client->protocolXfiles), progress(reporter) {
@@ -34,15 +34,21 @@ struct ScanContext {
 #endif
             mappings.push_back({path, path, flag});
         }
-        if (has) for (int i = 0; i < has->Count(); ++i) known.emplace_back(has->Get(i)->Text());
         if (auto* cvt = ClientSvc::XCharset(client, FromClient)) contents.reset(cvt->Clone());
         if (client != client->translated) names.reset(static_cast<TransDict*>(client->transfname)->ToCvt()->Clone());
     }
     // Check the SDK's sorted known-file list without changing global case-folding state.
     bool Known(const char* path) const {
-        const auto found = std::lower_bound(known.begin(), known.end(), path,
-            [](const std::string& a, const char* b) { return StrRef(a.c_str()).SCompare(StrRef(b)) < 0; });
-        return found != known.end() && !StrRef(found->c_str()).SCompare(StrRef(path));
+        if (!known) return false;
+        int first = 0, last = known->Count();
+        while (first < last) {
+            const int middle = first + (last - first) / 2;
+            const int order = known->Get(middle)->SCompare(StrRef(path));
+            if (!order) return true;
+            if (order < 0) first = middle + 1;
+            else last = middle;
+        }
+        return false;
     }
 };
 // Construct one independently owned canonical file probe on the connection thread.

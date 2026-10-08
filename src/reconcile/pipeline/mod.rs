@@ -22,7 +22,7 @@ pub struct Statistics {
     pub metadata_files: u64,
     /// Unique directory listings initialized by enumeration or targeted probes.
     pub metadata_directories: u64,
-    /// Reads served by a previously initialized path snapshot.
+    /// Reads served by command-owned metadata instead of another filesystem query.
     pub metadata_reuses: u64,
     /// Physical payload sizes hashed by the local scanner, excluding classification probes.
     pub scan_hashed_bytes: u64,

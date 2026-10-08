@@ -8,7 +8,7 @@ use std::{
 };
 
 enum Side {
-    Local(Snapshot),
+    Local,
     Server(Box<Work>),
 }
 pub(super) struct Tables {
@@ -65,7 +65,21 @@ impl Tables {
     }
 
     // Move a complete pair to scheduler admission after releasing its path shard.
-    fn send(&self, work: Work) -> Result<()> {
+    fn send(&self, mut work: Work) -> Result<()> {
+        if work.snapshot.is_none()
+            && !self.fallback.load(atomic::Ordering::Acquire)
+            && let Ok(path) = std::str::from_utf8(
+                work.request
+                    .path_bytes()
+                    .context("Failed to read paired path")?,
+            )
+        {
+            work.snapshot = Some(
+                self.metadata
+                    .snapshot_for(path)
+                    .context("Failed to reuse paired metadata")?,
+            );
+        }
         self.ready.send(work).map_err(|error| {
             crate::Error::new(format!("Failed to send complete path pair: {error}"))
         })
@@ -93,13 +107,13 @@ impl Tables {
                     work.snapshot = Some(snapshot);
                     Some(*work)
                 }
-                Some(Side::Local(_)) => {
+                Some(Side::Local) => {
                     return Err(crate::Error::new(
                         "Failed to enumerate duplicate local path",
                     ));
                 }
                 None => {
-                    table.insert(key, Side::Local(snapshot));
+                    table.insert(key, Side::Local);
                     None
                 }
             }
@@ -112,7 +126,7 @@ impl Tables {
     }
 
     // Hold frozen server metadata until its local slot exists or enumeration is complete.
-    pub(super) fn server(&self, mut work: Work) -> Result<()> {
+    pub(super) fn server(&self, work: Work) -> Result<()> {
         self.server.fetch_add(1, atomic::Ordering::Relaxed);
         if self.fallback.load(atomic::Ordering::Acquire) {
             return self
@@ -135,11 +149,8 @@ impl Tables {
                 .shard(&key)
                 .lock()
                 .map_err(|_| crate::Error::new("Failed to lock server path shard"))?;
-            match table.remove(&key) {
-                Some(Side::Local(snapshot)) => {
-                    work.snapshot = Some(snapshot);
-                    Some(work)
-                }
+            let ready = match table.remove(&key) {
+                Some(Side::Local) => Some(work),
                 Some(Side::Server(previous)) => {
                     duplicate = Some(*previous);
                     Some(work)
@@ -153,7 +164,11 @@ impl Tables {
                         .push_back(original);
                     None
                 }
+            };
+            if self.done.load(atomic::Ordering::Acquire) {
+                Self::compact(&mut table);
             }
+            ready
         };
         if let Some(work) = duplicate {
             self.send(work)
@@ -187,7 +202,7 @@ impl Tables {
                 .shard(&key)
                 .lock()
                 .map_err(|_| crate::Error::new("Failed to pair targeted probe"))?;
-            match table.remove(&key) {
+            let ready = match table.remove(&key) {
                 Some(Side::Server(mut work)) => {
                     work.snapshot = Some(snapshot);
                     self.probed
@@ -201,7 +216,11 @@ impl Tables {
                     None
                 }
                 None => None,
+            };
+            if self.done.load(atomic::Ordering::Acquire) {
+                Self::compact(&mut table);
             }
+            ready
         };
         if let Some(work) = ready {
             self.send(work)
@@ -222,6 +241,16 @@ impl Tables {
             atomic::Ordering::Relaxed,
         );
         self.done.store(true, atomic::Ordering::Release);
+        *self
+            .probes
+            .lock()
+            .map_err(|_| crate::Error::new("Failed to release completed probe queue"))? =
+            VecDeque::new();
+        *self
+            .probed
+            .lock()
+            .map_err(|_| crate::Error::new("Failed to release completed probe deduplication"))? =
+            HashSet::new();
         for shard in &self.paths {
             let requests = {
                 let mut table = shard
@@ -269,13 +298,32 @@ impl Tables {
                 .cloned()
                 .collect();
             for key in keys {
-                if let Some(Side::Local(snapshot)) = table.remove(&key) {
-                    paths.push((key.original().to_owned(), snapshot));
+                if let Some(Side::Local) = table.remove(&key) {
+                    paths.push(key.original().to_owned());
                 }
             }
+            Self::compact(&mut table);
         }
-        paths.sort_by(|left, right| left.0.cmp(&right.0));
-        Ok(paths)
+        paths.sort();
+        paths
+            .into_iter()
+            .map(|path| {
+                let snapshot = self
+                    .metadata
+                    .snapshot_for(&path)
+                    .context("Failed to reuse unmatched path metadata")?;
+                Ok((path, snapshot))
+            })
+            .collect()
+    }
+
+    // Release depleted pairing buckets at geometric thresholds rather than on every removal.
+    fn compact(table: &mut HashMap<Path, Side>) {
+        if table.is_empty() {
+            *table = HashMap::new();
+        } else if table.capacity() > 1024 && table.len() < table.capacity() / 4 {
+            table.shrink_to(table.len() * 2);
+        }
     }
 
     // Pair only complementary additions and deletions while retaining worker duration.
