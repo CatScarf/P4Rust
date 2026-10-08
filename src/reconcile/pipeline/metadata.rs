@@ -1,3 +1,5 @@
+mod records;
+
 use super::{
     local::{Agent, Snapshot},
     names::Names,
@@ -27,7 +29,7 @@ struct ContentIndex {
     files: sync::Mutex<Names<Contents>>,
 }
 pub(super) struct Directory {
-    files: sync::Mutex<Names<Stored<Stat>>>,
+    files: sync::Mutex<Names<Stored<Stat>, records::Records>>,
     entries: sync::Mutex<Vec<PathBuf>>,
     contents: sync::OnceLock<Box<ContentIndex>>,
 }
@@ -155,8 +157,7 @@ impl Metadata {
                 self.files.fetch_add(1, atomic::Ordering::Relaxed);
                 Ok(Stat::default())
             })
-            .context("Failed to cache path classification")?
-            .clone();
+            .context("Failed to cache path classification")?;
         self.reuses.fetch_add(1, atomic::Ordering::Relaxed);
         snapshot
             .map(Snapshot::from)
@@ -368,11 +369,10 @@ impl Metadata {
             Some(
                 contents
                     .get_or_insert_with(name, || sync::Arc::new(sync::OnceLock::new()))
-                    .context("Failed to cache content synchronization")?
-                    .clone(),
+                    .context("Failed to cache content synchronization")?,
             )
         } else {
-            contents.get(name).cloned()
+            contents.get(name)
         })
     }
 }

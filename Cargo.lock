@@ -169,7 +169,7 @@ dependencies = [
 
 [[package]]
 name = "p4rust"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "p4rust-resources-aarch64-apple-darwin",
  "p4rust-resources-aarch64-pc-windows-msvc",
