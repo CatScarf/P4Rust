@@ -60,11 +60,6 @@ impl Path {
         })
     }
 
-    // Select a stable shard without retaining a second lowercased filename.
-    pub(super) fn shard(&self, count: usize) -> usize {
-        self.hash as usize % count
-    }
-
     // Borrow the spelling needed by filesystem probes and SDK filename conversion.
     pub(super) fn original(&self) -> &str {
         &self.original

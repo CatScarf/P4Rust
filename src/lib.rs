@@ -1,5 +1,13 @@
 //! Safe Rust bindings for the Perforce C++ API.
 
+// Compile timing scopes out unless diagnostics are explicitly enabled.
+macro_rules! reconcile_span {
+    ($stage:expr) => {
+        #[cfg(feature = "reconcile-trace")]
+        let _trace_span = crate::reconcile::trace::ReconcileTrace::span($stage);
+    };
+}
+
 mod capture;
 mod command;
 mod control;
@@ -16,6 +24,8 @@ use error::ensure;
 pub use error::{CommandStatus, Error, Result, ResultExt};
 pub use output::{Output, RawOutput};
 pub use reconcile::ReconcileStatistics;
+#[cfg(feature = "reconcile-trace")]
+pub use reconcile::trace::ReconcileTrace;
 pub use reconcile::{FastReconcile, ReconcileHandler, ReconcileKind};
 pub use reconcile::{ReconcileReply, ReconcileRequest, ReconcileStatus};
 pub use stream::{CommandStream, Event, Progress, Record};

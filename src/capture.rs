@@ -74,6 +74,7 @@ impl Capture {
         value: *const u8,
         value_length: usize,
     ) -> Result<bool> {
+        reconcile_span!("stream_output");
         let prepared = {
             let mut state = self.state.lock().map_err(|_| {
                 crate::Error::new("Failed to lock native callback state: poisoned mutex")

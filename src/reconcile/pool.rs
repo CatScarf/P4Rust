@@ -1,5 +1,7 @@
+use super::runtime::fetch::Message;
 use super::{ReconcileHandler, ReconcileKind, ReconcileReply, ReconcileRequest};
 use crate::{Result, ResultExt};
+use crossbeam_channel as channel;
 use std::{sync, thread};
 
 pub(super) struct Work {
@@ -14,7 +16,7 @@ pub(super) struct Completed {
     pub reply: Result<(ReconcileRequest, ReconcileReply)>,
 }
 pub(super) struct Pool {
-    sender: Option<sync::mpsc::SyncSender<Work>>,
+    sender: Option<channel::Sender<Work>>,
     workers: Vec<thread::JoinHandle<Result<()>>>,
 }
 
@@ -23,21 +25,27 @@ impl Pool {
     pub(super) fn new(
         handler: sync::Arc<dyn ReconcileHandler>,
         kind: ReconcileKind,
-        results: sync::mpsc::Sender<Completed>,
+        results: channel::Sender<Message>,
     ) -> Result<Self> {
-        let (sender, receiver) = sync::mpsc::sync_channel::<Work>(handler.queue_capacity());
-        let receiver = sync::Arc::new(sync::Mutex::new(receiver));
+        let (sender, receiver) = channel::bounded::<Work>(handler.queue_capacity());
         let mut pool = Self {
             sender: Some(sender),
             workers: Vec::new(),
         };
         for index in 0..handler.workers(kind) {
-            let receiver = sync::Arc::clone(&receiver);
+            #[cfg(feature = "reconcile-trace")]
+            let trace = super::trace::ReconcileTrace::current();
+            let receiver = receiver.clone();
             let handler = sync::Arc::clone(&handler);
             let results = results.clone();
             let worker = thread::Builder::new()
                 .name(format!("p4rust-reconcile-{kind:?}-{index}"))
-                .spawn(move || Self::work(receiver, handler, results))
+                .spawn(move || {
+                    #[cfg(feature = "reconcile-trace")]
+                    let _attachment = super::trace::ReconcileTrace::attach(trace)
+                        .context("Failed to attach reconcile worker trace")?;
+                    Self::work(receiver, handler, results)
+                })
                 .context("Failed to spawn reconcile worker");
             match worker {
                 Ok(worker) => pool.workers.push(worker),
@@ -51,60 +59,87 @@ impl Pool {
         Ok(pool)
     }
 
-    // Receive ownership briefly under the queue lock and run callbacks outside it.
+    // Receive owned work directly without a shared receiver mutex.
     fn work(
-        receiver: sync::Arc<sync::Mutex<sync::mpsc::Receiver<Work>>>,
+        receiver: channel::Receiver<Work>,
         handler: sync::Arc<dyn ReconcileHandler>,
-        results: sync::mpsc::Sender<Completed>,
+        results: channel::Sender<Message>,
     ) -> Result<()> {
         loop {
-            let work = receiver
-                .lock()
-                .map_err(|_| {
-                    crate::Error::new("Failed to receive reconcile work: queue lock poisoned")
-                })?
-                .recv();
-            let Ok(mut work) = work else { break };
-            let bytes = work.request.metadata.bytes.len();
-            let pointer = work.request.task.pointer() as usize;
-            let started = std::time::Instant::now();
-            let reply = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                if let Some(snapshot) = &work.snapshot {
-                    // The worker owns both the native task and its copied local snapshot.
-                    let status = unsafe {
-                        crate::ffi::p4rust_reconcile_snapshot_v5(
-                            work.request.task.pointer(),
-                            snapshot,
-                        )
-                    };
-                    crate::error::ensure!(status == 0, "Failed to attach local reconcile snapshot");
-                }
-                handler.handle(&mut work.request)
-            })) {
-                Ok(result) => result.context("Failed to handle reconcile request"),
-                Err(_) => Err(crate::Error::new(
-                    "Failed to handle reconcile request: worker panicked",
-                )),
+            #[cfg(feature = "reconcile-trace")]
+            let waiting = super::trace::ReconcileTrace::span("worker_queue_wait");
+            let work = receiver.recv();
+            #[cfg(feature = "reconcile-trace")]
+            drop(waiting);
+            let Ok(work) = work else { break };
+            if results
+                .send(Message::Completed(Box::new(Self::execute(
+                    work,
+                    handler.as_ref(),
+                ))))
+                .is_err()
+            {
+                // Fetch disconnects before joining workers during shutdown.
+                break;
             }
-            .and_then(|reply| {
-                crate::error::ensure!(
-                    reply.identity == pointer && work.request.executed,
-                    "Failed to handle reconcile request: reply belongs to a different request"
-                );
-                Ok((work.request, reply))
-            });
-            results
-                .send(Completed {
-                    id: work.id,
-                    bytes,
-                    duration: started.elapsed(),
-                    reply,
-                })
-                .map_err(|error| {
-                    crate::Error::new(format!("Failed to send reconcile completion: {error}"))
-                })?;
         }
         Ok(())
+    }
+
+    // Run one isolated task on either a digest worker or the fetch owner.
+    pub(super) fn execute(mut work: Work, handler: &dyn ReconcileHandler) -> Completed {
+        let bytes = work.request.metadata.bytes.len();
+        let pointer = work.request.task.pointer() as usize;
+        let started = std::time::Instant::now();
+        #[cfg(feature = "reconcile-trace")]
+        let execution = super::trace::ReconcileTrace::span(match work.request.kind {
+            ReconcileKind::TrackedFile => "sdk_tracked_other",
+            ReconcileKind::ExactMatch => "sdk_exact",
+            ReconcileKind::Directory => "sdk_directory",
+            ReconcileKind::UntrackedFile => "sdk_untracked",
+            ReconcileKind::Move => "sdk_move",
+        });
+        let reply = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if let Some(snapshot) = &work.snapshot {
+                // The worker owns both the native task and its copied local snapshot.
+                let status = unsafe {
+                    crate::ffi::p4rust_reconcile_snapshot_v5(work.request.task.pointer(), snapshot)
+                };
+                crate::error::ensure!(status == 0, "Failed to attach local reconcile snapshot");
+            }
+            handler.handle(&mut work.request)
+        })) {
+            Ok(result) => result.context("Failed to handle reconcile request"),
+            Err(_) => Err(crate::Error::new(
+                "Failed to handle reconcile request: worker panicked",
+            )),
+        }
+        .and_then(|reply| {
+            crate::error::ensure!(
+                reply.identity == pointer && work.request.executed,
+                "Failed to handle reconcile request: reply belongs to a different request"
+            );
+            Ok((work.request, reply))
+        });
+        #[cfg(feature = "reconcile-trace")]
+        {
+            if let Ok((request, reply)) = &reply
+                && request.kind == ReconcileKind::TrackedFile
+            {
+                if reply.result.get_raw(b"timestampMatch") == Some(b"1") {
+                    execution.classify("sdk_tracked_timestamp");
+                } else if reply.result.get_raw(b"hashedBytes").is_some() {
+                    execution.classify("sdk_tracked_hash");
+                }
+            }
+            drop(execution);
+        }
+        Completed {
+            id: work.id,
+            bytes,
+            duration: started.elapsed(),
+            reply,
+        }
     }
 
     // Enqueue only after the command runtime has reserved its total capacity.

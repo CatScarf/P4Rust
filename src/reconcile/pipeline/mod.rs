@@ -10,6 +10,7 @@ use super::pool::Work;
 use crate::{Config, Result, ResultExt, control::Control};
 use std::{path::PathBuf, sync, thread, time};
 use tables::Tables;
+pub(super) use tables::shared::Local;
 
 /// A snapshot of concurrent reconcile enumeration, pairing, and comparison work.
 #[derive(Clone, Debug, Default)]
@@ -40,18 +41,19 @@ pub struct Statistics {
 }
 
 pub(super) struct Pipeline {
-    tables: sync::Arc<Tables>,
+    tables: Tables,
     scanner: Option<thread::JoinHandle<Result<()>>>,
-    ready: sync::mpsc::Receiver<Work>,
     failure: sync::mpsc::Receiver<crate::Error>,
 }
 
 impl Pipeline {
     // Start local workers before the command opens its single server connection.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn start(
         config: &Config,
         args: &[&str],
         workers: usize,
+        events: crossbeam_channel::Sender<super::runtime::fetch::Message>,
         control: Control,
     ) -> Result<Option<Self>> {
         if !matches!(config.charset.as_str(), "utf8" | "utf8unchecked")
@@ -87,16 +89,21 @@ impl Pipeline {
         {
             return Ok(None);
         }
-        let (sender, ready) = sync::mpsc::channel();
         let (errors, failure) = sync::mpsc::channel();
-        let tables = sync::Arc::new(Tables::new(sender));
-        let shared = sync::Arc::clone(&tables);
+        let tables = Tables::new(events);
+        let shared = sync::Arc::clone(&tables.shared);
         let config = config.clone();
         let hashes = !args.contains(&"-m");
         let ignore = !args.contains(&"-I");
+        #[cfg(feature = "reconcile-trace")]
+        let trace = super::trace::ReconcileTrace::current();
         let scanner = thread::Builder::new()
             .name("p4rust-local-enumerator".into())
             .spawn(move || {
+                #[cfg(feature = "reconcile-trace")]
+                let _attachment = super::trace::ReconcileTrace::attach(trace)
+                    .context("Failed to attach local enumerator trace")?;
+                reconcile_span!("local_scan_lifetime");
                 let started = time::Instant::now();
                 let result =
                     scanner::Scanner::run(root, config, workers, hashes, ignore, &shared, &control)
@@ -108,40 +115,55 @@ impl Pipeline {
                     control.cancel();
                 }
                 shared
-                    .finish_scan(started.elapsed())
+                    .finish_scan(started.elapsed(), &control)
                     .context("Failed to finish local path enumeration")
             })
             .context("Failed to spawn local reconcile enumeration")?;
         Ok(Some(Self {
             tables,
             scanner: Some(scanner),
-            ready,
             failure,
         }))
     }
 
-    // Match a server request atomically and transfer complete pairs outside the table lock.
-    pub(super) fn server(&self, work: Work) -> Result<()> {
+    // Pair a server request exclusively on the Rust fetch owner.
+    pub(super) fn server(&mut self, work: Work) -> Result<()> {
         self.tables
             .server(work)
             .context("Failed to pair server reconcile record")
     }
-
-    // Transfer available matched pairs to the connection-owned scheduler.
-    pub(super) fn ready(&self) -> Vec<Work> {
-        self.ready.try_iter().collect()
+    // Pair an arriving local batch without polling scanner state.
+    pub(super) fn consume(&mut self, local: Local) -> Result<()> {
+        self.tables
+            .consume(local)
+            .context("Failed to consume scanner event")
+    }
+    // Finalize unmatched paths when the last scanner producer completes.
+    pub(super) fn finish_scan(&mut self) -> Result<()> {
+        self.tables
+            .finish_scan()
+            .context("Failed to finalize scanner event")
+    }
+    // Transfer one matched pair without allocating a poll result vector.
+    pub(super) fn ready(&mut self) -> Option<Work> {
+        self.tables.ready()
     }
     // Observe local completion without delaying native reply flushing.
     pub(super) fn scanning(&self) -> bool {
-        !self.tables.done.load(sync::atomic::Ordering::Acquire)
+        self.tables.scanning()
     }
+
     // Preserve canonical traversal when filenames cannot be represented by Rust strings.
     pub(super) fn enabled(&self) -> bool {
-        !self.tables.fallback.load(sync::atomic::Ordering::Acquire)
+        !self
+            .tables
+            .shared
+            .fallback
+            .load(sync::atomic::Ordering::Acquire)
     }
     // Retain canonical traversal when an SDK callback uses opaque filenames.
     pub(super) fn use_fallback(&self) {
-        self.tables.use_fallback();
+        self.tables.shared.use_fallback();
     }
 
     // Surface enumeration errors before generic cancellation hides their origin.
@@ -154,7 +176,7 @@ impl Pipeline {
 
     // Feed canonical results into digest table B and operation table C.
     pub(super) fn completed(
-        &self,
+        &mut self,
         request: &super::super::ReconcileRequest,
         reply: &super::super::ReconcileReply,
         duration: time::Duration,
@@ -165,29 +187,36 @@ impl Pipeline {
     }
 
     // Remove unmatched local paths only after local enumeration and tracked comparisons finish.
-    pub(super) fn paths(&self, directory: &[u8]) -> Result<Vec<(String, local::Snapshot)>> {
+    pub(super) fn paths(&mut self, directory: &[u8]) -> Result<Vec<(String, local::Snapshot)>> {
         self.tables
             .paths(directory)
             .context("Failed to collect unmatched local files")
     }
 
-    // Snapshot counters without holding path locks during callbacks.
+    // Snapshot fetch-owned counters without copying path or result tables.
     pub(super) fn statistics(&self) -> Result<Statistics> {
-        self.tables
-            .statistics()
-            .context("Failed to snapshot reconcile pipeline")
+        Ok(self.tables.statistics())
     }
     // Reuse the shared directory and path registry for native task construction.
     pub(super) fn snapshot(&self, path: &str) -> Result<local::Snapshot> {
         self.tables
+            .shared
             .metadata
             .snapshot_for(path)
             .context("Failed to obtain native metadata snapshot")
     }
 
+    // Stop publishers before disconnecting their shared event pipe.
+    pub(super) fn stop(&self) {
+        self.tables
+            .shared
+            .stop
+            .store(true, sync::atomic::Ordering::Release);
+    }
     // Join all scanner threads before releasing requests that borrow native command state.
     pub(super) fn close(&mut self) -> Result<()> {
         self.tables
+            .shared
             .stop
             .store(true, sync::atomic::Ordering::Release);
         if let Some(scanner) = self.scanner.take() {
@@ -196,19 +225,16 @@ impl Pipeline {
                 .map_err(|_| crate::Error::new("Failed to join local scan: thread panicked"))?
                 .context("Failed to finish local enumeration")?;
         }
-        self.tables
-            .finish_results()
-            .context("Failed to finalize tables B and C")?;
+        self.tables.finish_results();
         self.check()
             .context("Failed to close local reconcile pipeline")
     }
     // Retain final SDK records in result table C after protocol classification.
-    pub(super) fn output(&self, record: crate::Record) -> Result<()> {
+    pub(super) fn output(&mut self, record: crate::Record) -> Result<()> {
         if !self.enabled() {
             return Ok(());
         }
-        self.tables
-            .output(record)
-            .context("Failed to retain final reconcile record")
+        self.tables.output(record);
+        Ok(())
     }
 }

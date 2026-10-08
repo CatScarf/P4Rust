@@ -1,233 +1,236 @@
 mod dispatch;
-use super::{ReconcileHandler, ReconcileKind, ReconcileRequest, pool};
+pub(super) mod fetch;
+pub(super) mod ingress;
+use super::{ReconcileHandler, pool};
 use crate::{Result, ResultExt, control::Control, error::ensure};
-use std::{collections::BTreeMap, ffi::c_void, sync, time};
+use crossbeam_channel as channel;
+use std::{cell::RefCell, collections::VecDeque};
+use std::{ffi::c_void, sync, sync::atomic, thread, time};
 
-#[derive(Default)]
-struct State {
-    next: u64,
-    count: usize,
-    bytes: usize,
-    completed: BTreeMap<u64, pool::Completed>,
-    failure: Option<crate::Error>,
-    last_progress: Option<time::Instant>,
+struct Shared {
+    control: Control,
+    count: atomic::AtomicUsize,
+    bytes: atomic::AtomicUsize,
+    sequence: atomic::AtomicU64,
+    failed: atomic::AtomicBool,
+    failure: sync::Mutex<Option<crate::Error>>,
 }
 
 pub(crate) struct Runtime {
-    pools: sync::Mutex<Option<[pool::Pool; 3]>>,
-    receiver: sync::Mutex<sync::mpsc::Receiver<pool::Completed>>,
-    state: sync::Mutex<State>,
-    control: Control,
+    ingress: channel::Sender<fetch::Message>,
+    replies: channel::Receiver<Vec<pool::Completed>>,
+    shared: sync::Arc<Shared>,
+    worker: sync::Mutex<Option<thread::JoinHandle<()>>>,
     capacity: usize,
     budget: usize,
-    sequence: sync::atomic::AtomicU64,
-    pipeline: sync::Mutex<Option<super::pipeline::Pipeline>>,
-    handler: sync::Arc<dyn ReconcileHandler>,
+    commits: RefCell<VecDeque<pool::Completed>>,
+    owner: thread::ThreadId,
+}
+
+impl Shared {
+    // Publish a contextual failure once without locking successful callbacks.
+    fn fail(&self, error: crate::Error) {
+        self.failed.store(true, atomic::Ordering::Release);
+        match self.failure.lock() {
+            Ok(mut failure) => {
+                failure.get_or_insert(error);
+            }
+            Err(_) => eprintln!("Failed to retain reconcile fetch failure: {error}"),
+        }
+        self.control.cancel();
+    }
+
+    // Inspect command cancellation and cold-path failure flags.
+    fn check(&self) -> Result<()> {
+        ensure!(
+            !self.failed.load(atomic::Ordering::Acquire),
+            "Failed to continue reconcile after fetch failure"
+        );
+        if let Some(error) = self.control.error() {
+            return Err(error).context("Failed to continue reconcile fetch");
+        }
+        Ok(())
+    }
 }
 
 impl Runtime {
-    // Validate limits and initialize all categories before the native command starts.
+    // Spawn a single Rust fetch owner before the SDK opens its server connection.
     pub(crate) fn new(
         handler: sync::Arc<dyn ReconcileHandler>,
         control: Control,
         config: &crate::Config,
         args: &[&str],
     ) -> Result<Self> {
-        let kinds = [
-            ReconcileKind::Directory,
-            ReconcileKind::TrackedFile,
-            ReconcileKind::Move,
-        ];
-        for kind in kinds {
-            ensure!(
-                (1..=32).contains(&handler.workers(kind)),
-                "Failed to configure reconcile workers: expected 1..=32"
-            );
-        }
-        ensure!(
-            handler.workers(ReconcileKind::UntrackedFile)
-                == handler.workers(ReconcileKind::TrackedFile),
-            "Failed to configure reconcile workers: tracked and untracked digest limits must match"
-        );
-        ensure!(
-            handler.workers(ReconcileKind::ExactMatch)
-                == handler.workers(ReconcileKind::TrackedFile),
-            "Failed to configure reconcile workers: exact and tracked digest limits must match"
-        );
-        ensure!(
-            (1..=65536).contains(&handler.queue_capacity()),
-            "Failed to configure reconcile queue capacity"
-        );
-        ensure!(
-            (1048576..=268435456).contains(&handler.queue_bytes()),
-            "Failed to configure reconcile byte budget"
-        );
-        let (sender, receiver) = sync::mpsc::channel();
-        let metadata = pool::Pool::new(sync::Arc::clone(&handler), kinds[0], sender.clone())
-            .context("Failed to initialize metadata workers")?;
-        let digest = pool::Pool::new(sync::Arc::clone(&handler), kinds[1], sender.clone())
-            .context("Failed to initialize digest workers")?;
-        let moves = pool::Pool::new(sync::Arc::clone(&handler), kinds[2], sender)
-            .context("Failed to initialize move workers")?;
-        let pipeline = if handler.pipeline() {
-            super::pipeline::Pipeline::start(
-                config,
-                args,
-                handler.workers(kinds[0]),
-                control.clone(),
-            )
-            .context("Failed to start reconcile path pipeline")?
-        } else {
-            None
-        };
-        Ok(Self {
-            pools: sync::Mutex::new(Some([metadata, digest, moves])),
-            receiver: sync::Mutex::new(receiver),
-            state: sync::Mutex::new(State::default()),
+        fetch::Fetch::validate(handler.as_ref())
+            .context("Failed to validate reconcile fetch configuration")?;
+        let capacity = handler.queue_capacity();
+        let budget = handler.queue_bytes();
+        let shared = sync::Arc::new(Shared {
             control,
-            capacity: handler.queue_capacity(),
-            budget: handler.queue_bytes(),
-            sequence: sync::atomic::AtomicU64::new(0),
-            pipeline: sync::Mutex::new(pipeline),
+            count: atomic::AtomicUsize::new(0),
+            bytes: atomic::AtomicUsize::new(0),
+            sequence: atomic::AtomicU64::new(0),
+            failed: atomic::AtomicBool::new(false),
+            failure: sync::Mutex::new(None),
+        });
+        let (ingress, receiver) = channel::bounded(capacity);
+        let (sender, replies) = channel::unbounded();
+        let mut fetch = fetch::Fetch::new(
             handler,
+            sync::Arc::clone(&shared),
+            config,
+            args,
+            ingress.clone(),
+            receiver,
+            sender,
+        )
+        .context("Failed to initialize reconcile fetch owner")?;
+        #[cfg(feature = "reconcile-trace")]
+        let trace = super::trace::ReconcileTrace::current();
+        let state = sync::Arc::clone(&shared);
+        let worker = thread::Builder::new()
+            .name("p4rust-reconcile-fetch".into())
+            .spawn(move || {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    #[cfg(feature = "reconcile-trace")]
+                    let _attachment = super::trace::ReconcileTrace::attach(trace)
+                        .context("Failed to attach fetch trace")?;
+                    reconcile_span!("fetch_lifetime");
+                    if let Err(error) = fetch
+                        .run()
+                        .context("Failed to process reconcile fetch pipeline")
+                    {
+                        state.fail(error);
+                    }
+                    fetch
+                        .close()
+                        .context("Failed to clean up reconcile fetch pipeline")
+                }))
+                .unwrap_or_else(|_| {
+                    Err(crate::Error::new(
+                        "Failed to process reconcile fetch: thread panicked",
+                    ))
+                });
+                if let Err(error) = result {
+                    state.fail(error);
+                }
+                if let Err(error) = fetch.close() {
+                    state.fail(error);
+                }
+            })
+            .context("Failed to spawn reconcile fetch thread")?;
+        Ok(Self {
+            ingress,
+            replies,
+            shared,
+            worker: sync::Mutex::new(Some(worker)),
+            capacity,
+            budget,
+            commits: RefCell::new(VecDeque::new()),
+            owner: thread::current().id(),
         })
     }
-
-    // Reserve retained work without holding any Rust lock across native reply dispatch.
-    fn submit(&self, request: ReconcileRequest) -> Result<()> {
-        let bytes = request.metadata.bytes.len();
+    // Reserve total retained task and byte credits before transferring ownership.
+    fn submit(&self, mut request: ingress::Frozen) -> Result<()> {
+        reconcile_span!("request_admission");
+        let bytes = request.bytes;
         ensure!(
             bytes <= self.budget,
             "Failed to enqueue reconcile request: exceeds byte budget"
         );
-        loop {
-            self.check().context("Failed to submit reconcile request")?;
-            let mut state = self
-                .state
-                .lock()
-                .map_err(|_| crate::Error::new("Failed to lock reconcile admission"))?;
-            if state.count < self.capacity && state.bytes <= self.budget - bytes {
-                state.count += 1;
-                state.bytes += bytes;
-                break;
-            }
-            drop(state);
+        while self.shared.count.load(atomic::Ordering::Acquire) >= self.capacity
+            || self.shared.bytes.load(atomic::Ordering::Acquire) > self.budget - bytes
+        {
+            reconcile_span!("admission_backpressure");
             self.poll(true)
-                .context("Failed to wait for reconcile queue capacity")?;
+                .context("Failed to wait for reconcile admission credits")?;
         }
-        let id = self.sequence.fetch_add(1, sync::atomic::Ordering::Relaxed);
-        let work = pool::Work {
-            id,
-            request,
-            snapshot: None,
-        };
-        if work.request.kind == ReconcileKind::TrackedFile {
-            let pipeline = self
-                .pipeline
-                .lock()
-                .map_err(|_| crate::Error::new("Failed to lock reconcile path pipeline"))?;
-            if let Some(pipeline) = pipeline.as_ref() {
-                return pipeline
-                    .server(work)
-                    .context("Failed to submit server path slot");
-            }
-        }
-        self.enqueue(work)
-            .context("Failed to enqueue ready reconcile work")
+        self.shared
+            .check()
+            .context("Failed to admit reconcile request")?;
+        self.shared.count.fetch_add(1, atomic::Ordering::Release);
+        self.shared
+            .bytes
+            .fetch_add(bytes, atomic::Ordering::Release);
+        request.id = self.shared.sequence.fetch_add(1, atomic::Ordering::Relaxed);
+        self.send(fetch::Message::Request(Box::new(request)))
+            .context("Failed to queue frozen SDK request")
     }
 
-    // Dispatch only complete pairs while preserving connection-thread ownership of replies.
-    fn enqueue(&self, work: pool::Work) -> Result<()> {
-        let index = match work.request.kind {
-            ReconcileKind::Directory => 0,
-            ReconcileKind::Move => 2,
-            _ => 1,
-        };
-        self.pools
-            .lock()
-            .map_err(|_| crate::Error::new("Failed to lock reconcile pools"))?
-            .as_ref()
-            .context("Failed to submit to stopped reconcile runtime")?[index]
-            .submit(work)
-            .context("Failed to dispatch reconcile request")
-    }
-
-    // Receive completions and commit them in request order without retaining a lock.
-    fn poll(&self, wait: bool) -> Result<()> {
-        self.check()
-            .context("Failed to poll reconcile completion")?;
-        let ready = self
-            .pipeline
-            .lock()
-            .map_err(|_| crate::Error::new("Failed to drain paired reconcile paths"))?
-            .as_ref()
-            .map(super::pipeline::Pipeline::ready)
-            .unwrap_or_default();
-        for work in ready {
-            self.enqueue(work)
-                .context("Failed to dispatch paired comparison")?;
-        }
-        self.progress(false)
-            .context("Failed to report reconcile progress")?;
-        let result = {
-            let receiver = self
-                .receiver
-                .lock()
-                .map_err(|_| crate::Error::new("Failed to lock reconcile completions"))?;
-            if wait {
-                match receiver.recv_timeout(time::Duration::from_millis(25)) {
-                    Ok(result) => Some(result),
-                    Err(sync::mpsc::RecvTimeoutError::Timeout) => None,
-                    Err(sync::mpsc::RecvTimeoutError::Disconnected) => {
-                        return Err(crate::Error::new(
-                            "Failed to receive reconcile completion: workers disconnected",
-                        ));
+    // Pump replies while ingress is full so neither direction can deadlock.
+    fn send(&self, mut message: fetch::Message) -> Result<()> {
+        loop {
+            self.shared
+                .check()
+                .context("Failed to transfer fetch message")?;
+            match self.ingress.try_send(message) {
+                Ok(()) => return Ok(()),
+                Err(channel::TrySendError::Full(returned)) => {
+                    reconcile_span!("ingress_backpressure");
+                    message = returned;
+                    let mut selection = channel::Select::new();
+                    let send = selection.send(&self.ingress);
+                    let receive = selection.recv(&self.replies);
+                    if let Ok(operation) = selection.select_timeout(time::Duration::from_millis(25))
+                    {
+                        if operation.index() == send {
+                            operation.send(&self.ingress, message).map_err(|error| {
+                                crate::Error::new(format!("Failed to send fetch message: {error}"))
+                            })?;
+                            return Ok(());
+                        }
+                        ensure!(
+                            operation.index() == receive,
+                            "Failed to select fetch channel"
+                        );
+                        let batch = operation.recv(&self.replies).map_err(|error| {
+                            crate::Error::new(format!("Failed to receive fetch replies: {error}"))
+                        })?;
+                        self.commits.borrow_mut().extend(batch);
+                        self.poll(false)
+                            .context("Failed to commit fetch backpressure replies")?;
                     }
                 }
-            } else {
-                match receiver.try_recv() {
-                    Ok(result) => Some(result),
-                    Err(sync::mpsc::TryRecvError::Empty) => None,
-                    Err(sync::mpsc::TryRecvError::Disconnected) => None,
+                Err(channel::TrySendError::Disconnected(_)) => {
+                    return Err(crate::Error::new(
+                        "Failed to transfer fetch message: disconnected",
+                    ));
                 }
             }
-        };
-        if let Some(result) = result {
-            self.state
-                .lock()
-                .map_err(|_| crate::Error::new("Failed to retain reconcile completion"))?
-                .completed
-                .insert(result.id, result);
+        }
+    }
+
+    // Wait only for retained native work and commit replies on the connection thread.
+    fn poll(&self, wait: bool) -> Result<()> {
+        self.shared
+            .check()
+            .context("Failed to poll reconcile completion")?;
+        if wait && self.pending() && self.commits.borrow().is_empty() {
+            reconcile_span!("completion_wait");
+            match self.replies.recv_timeout(time::Duration::from_millis(25)) {
+                Ok(batch) => self.commits.borrow_mut().extend(batch),
+                Err(channel::RecvTimeoutError::Timeout) => {}
+                Err(channel::RecvTimeoutError::Disconnected) => {
+                    return Err(crate::Error::new(
+                        "Failed to receive reconcile completion: fetch disconnected",
+                    ));
+                }
+            }
+        }
+        for batch in self.replies.try_iter().take(32) {
+            self.commits.borrow_mut().extend(batch);
         }
         loop {
-            let completed = {
-                let mut state = self
-                    .state
-                    .lock()
-                    .map_err(|_| crate::Error::new("Failed to order reconcile completion"))?;
-                let next = state.next;
-                let completed = state.completed.remove(&next);
-                if let Some(completed) = &completed {
-                    state.next += 1;
-                    state.count -= 1;
-                    state.bytes -= completed.bytes;
-                }
-                completed
-            };
+            let completed = self.commits.borrow_mut().pop_front();
             let Some(completed) = completed else { break };
+            self.shared.count.fetch_sub(1, atomic::Ordering::Release);
+            self.shared
+                .bytes
+                .fetch_sub(completed.bytes, atomic::Ordering::Release);
             let (request, reply) = completed
                 .reply
                 .context("Failed to complete reconcile worker")?;
-            if let Some(pipeline) = self
-                .pipeline
-                .lock()
-                .map_err(|_| crate::Error::new("Failed to record reconcile comparison"))?
-                .as_ref()
-            {
-                pipeline
-                    .completed(&request, &reply, completed.duration)
-                    .context("Failed to record canonical comparison")?;
-            }
+            reconcile_span!("sdk_commit");
             reply
                 .commit(request)
                 .context("Failed to commit reconcile reply")?;
@@ -235,150 +238,69 @@ impl Runtime {
         Ok(())
     }
 
-    // Stop admitting work immediately when cancellation or a callback failure occurs.
-    fn check(&self) -> Result<()> {
-        if let Some(pipeline) = self
-            .pipeline
-            .lock()
-            .map_err(|_| crate::Error::new("Failed to check path pipeline"))?
-            .as_ref()
-        {
-            pipeline
+    // Pump native completions while collecting a synchronous fetch helper response.
+    fn response<T>(&self, receiver: channel::Receiver<Result<T>>) -> Result<T> {
+        loop {
+            self.shared
                 .check()
-                .context("Failed to inspect local enumeration failure")?;
-        }
-        if let Some(error) = self.control.error() {
-            return Err(error);
-        }
-        ensure!(
-            self.state
-                .lock()
-                .map_err(|_| crate::Error::new("Failed to inspect reconcile failure"))?
-                .failure
-                .is_none(),
-            "Failed to continue reconcile after callback failure"
-        );
-        Ok(())
-    }
-
-    // Inspect retained work independently of worker completion delivery.
-    fn pending(&self) -> Result<bool> {
-        Ok(self
-            .state
-            .lock()
-            .map_err(|_| crate::Error::new("Failed to inspect pending reconcile work"))?
-            .count
-            != 0)
-    }
-
-    // Join workers before dropping their native tasks or callback contexts.
-    pub(crate) fn close(&self) -> Result<()> {
-        let pipeline = self
-            .pipeline
-            .lock()
-            .map_err(|_| crate::Error::new("Failed to stop local pipeline"))?
-            .take();
-        let mut pipeline_failure = None;
-        if let Some(mut pipeline) = pipeline {
-            if let Err(error) = pipeline.close() {
-                pipeline_failure = Some(error);
-            }
-            let report = if pipeline.enabled() {
-                pipeline
-                    .statistics()
-                    .context("Failed to read final pipeline counters")
-                    .and_then(|statistics| {
-                        self.handler
-                            .progress(&statistics)
-                            .context("Failed to deliver final pipeline counters")
-                    })
-            } else {
-                Ok(())
-            };
-            if let Err(error) = report {
-                pipeline_failure.get_or_insert(error);
-            }
-        }
-        let pools = self
-            .pools
-            .lock()
-            .map_err(|_| crate::Error::new("Failed to close reconcile pools"))?
-            .take();
-        let mut failure = pipeline_failure;
-        if let Some(mut pools) = pools {
-            for pool in &mut pools {
-                if let Err(error) = pool.close() {
-                    failure = Some(error);
+                .context("Failed to wait for fetch helper")?;
+            match receiver.recv_timeout(time::Duration::from_millis(1)) {
+                Ok(result) => return result.context("Failed to complete fetch helper"),
+                Err(channel::RecvTimeoutError::Timeout) => self
+                    .poll(false)
+                    .context("Failed to progress fetch helper replies")?,
+                Err(channel::RecvTimeoutError::Disconnected) => {
+                    return Err(crate::Error::new(
+                        "Failed to receive fetch helper: disconnected",
+                    ));
                 }
             }
         }
-        self.receiver
-            .lock()
-            .map_err(|_| crate::Error::new("Failed to release queued reconcile completions"))?
-            .try_iter()
-            .for_each(drop);
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| crate::Error::new("Failed to release ordered reconcile completions"))?;
-        state.completed.clear();
-        state.count = 0;
-        state.bytes = 0;
-        match failure {
-            Some(error) => Err(error),
-            None => Ok(()),
-        }
     }
 
-    // Report snapshots periodically without invoking user callbacks under scheduler locks.
-    fn progress(&self, force: bool) -> Result<()> {
-        {
-            let mut state = self
-                .state
-                .lock()
-                .map_err(|_| crate::Error::new("Failed to inspect pipeline progress interval"))?;
-            if !force
-                && state
-                    .last_progress
-                    .is_some_and(|last| last.elapsed() < time::Duration::from_secs(15))
-            {
-                return Ok(());
-            }
-            state.last_progress = Some(time::Instant::now());
-        }
-        let statistics = self
-            .pipeline
+    // Include every ingress, running, ordered and queued reply in stage barriers.
+    fn pending(&self) -> bool {
+        self.shared.count.load(atomic::Ordering::Acquire) != 0
+    }
+
+    // Join the fetch owner and all native-data users before closing the SDK session.
+    pub(crate) fn close(&self) -> Result<()> {
+        reconcile_span!("cleanup");
+        if let Some(worker) = self
+            .worker
             .lock()
-            .map_err(|_| crate::Error::new("Failed to snapshot path pipeline"))?
-            .as_ref()
-            .filter(|pipeline| pipeline.enabled())
-            .map(super::pipeline::Pipeline::statistics)
-            .transpose()
-            .context("Failed to read pipeline counters")?;
-        if let Some(statistics) = statistics {
-            self.handler
-                .progress(&statistics)
-                .context("Failed to report pipeline counters")?;
+            .map_err(|_| crate::Error::new("Failed to lock fetch lifecycle"))?
+            .take()
+        {
+            // A disconnected fetch has already entered cleanup.
+            let _disconnected = self.ingress.send(fetch::Message::Stop).is_err();
+            worker
+                .join()
+                .map_err(|_| crate::Error::new("Failed to join reconcile fetch thread"))?;
         }
+        self.replies.try_iter().for_each(drop);
+        self.commits.borrow_mut().clear();
+        self.shared.count.store(0, atomic::Ordering::Release);
+        self.shared.bytes.store(0, atomic::Ordering::Release);
         Ok(())
     }
 
-    // Recover the original Rust failure after native cleanup has stopped all workers.
+    // Recover the original fetch failure after all borrowed SDK resources are released.
     pub(crate) fn finish(&self) -> Result<()> {
-        self.close().context("Failed to join reconcile pools")?;
-        let failure = self
-            .state
-            .lock()
-            .map_err(|_| crate::Error::new("Failed to read reconcile callback failure"))?
+        self.close().context("Failed to finish reconcile fetch")?;
+        match self
+            .shared
             .failure
-            .take();
-        match failure {
+            .lock()
+            .map_err(|_| crate::Error::new("Failed to read fetch failure"))?
+            .take()
+        {
             Some(error) => Err(error),
             None => Ok(()),
         }
     }
 
-    // Contain panics at the C boundary and record the first contextual failure.
+    // Contain SDK callback panics and retain the first contextual failure.
     pub(crate) unsafe extern "C" fn callback(
         context: *mut c_void,
         operation: u32,
@@ -386,31 +308,32 @@ impl Runtime {
         data: *const u8,
         length: usize,
     ) -> i32 {
-        // Native execution keeps this shared runtime alive through worker cleanup.
+        // Native execution retains this runtime through synchronous cleanup.
         let runtime = unsafe { &*context.cast::<Self>() };
-        let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            // The operation owns a task only for submission and borrows its descriptor array.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            // Submitted task ownership is adopted before metadata validation.
             unsafe { runtime.dispatch(operation, task, data, length) }
-        })) {
-            Ok(result) => result,
-            Err(_) => Err(crate::Error::new(
+        }))
+        .unwrap_or_else(|_| {
+            Err(crate::Error::new(
                 "Failed to dispatch reconcile callback: panicked",
-            )),
-        };
+            ))
+        });
         match result {
             Ok(value) => value,
             Err(error) => {
-                runtime.control.cancel();
-                match runtime.state.lock() {
-                    Ok(mut state) => {
-                        if state.failure.is_none() {
-                            state.failure = Some(error);
-                        }
-                    }
-                    Err(_) => eprintln!("Failed to retain reconcile callback error: {error}"),
-                }
+                runtime.shared.fail(error);
                 -1
             }
+        }
+    }
+}
+
+impl Drop for Runtime {
+    // Join the fetch thread even when native command initialization fails.
+    fn drop(&mut self) {
+        if let Err(error) = self.close() {
+            eprintln!("Failed to drop reconcile fetch: {error}");
         }
     }
 }

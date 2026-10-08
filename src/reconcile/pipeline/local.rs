@@ -74,6 +74,7 @@ impl<'a> Agent<'a> {
 
     // Check SDK ignore policy without querying file metadata or reading contents.
     pub(super) fn accepted(&self, path: &str, directory: bool) -> Result<bool> {
+        reconcile_span!("ignore_file");
         let path = CString::new(path).context("Failed to encode ignore path")?;
         let mut snapshot = Snapshot::default();
         let code = unsafe {
@@ -91,6 +92,7 @@ impl<'a> Agent<'a> {
 
     // Share the synchronous SDK probe boundary for enumerated and server-prioritized paths.
     fn inspect_kind(&self, path: &str, directory: i32, hashes: bool) -> Result<Option<Snapshot>> {
+        reconcile_span!("ignore_directory");
         if let Some(error) = self.control.command.error() {
             return Err(error).context("Failed to inspect local path");
         }

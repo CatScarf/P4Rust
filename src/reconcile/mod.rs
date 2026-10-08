@@ -2,14 +2,25 @@ pub(crate) mod pipeline;
 mod pool;
 pub(crate) mod runtime;
 mod task;
+#[cfg(feature = "reconcile-trace")]
+pub(crate) mod trace;
 use crate::{Result, ResultExt};
 pub use pipeline::Statistics as ReconcileStatistics;
 pub use task::{ReconcileKind, ReconcileReply, ReconcileRequest, ReconcileStatus};
 
 /// An owned strategy for local SDK work; networking stays on the command thread.
 pub trait ReconcileHandler: Send + Sync {
+    /// Attach optional command-owned timeline diagnostics to all reconcile workers.
+    #[cfg(feature = "reconcile-trace")]
+    fn trace(&self) -> Option<trace::ReconcileTrace> {
+        None
+    }
     /// Enable concurrent local enumeration and server-to-local path pairing.
     fn pipeline(&self) -> bool {
+        false
+    }
+    /// Allow cheap timestamp comparisons on the Rust fetch thread.
+    fn inline_timestamp(&self) -> bool {
         false
     }
     /// Observe command-local pipeline counters without retaining borrowed native data.
@@ -38,6 +49,8 @@ pub struct FastReconcile {
     moves: usize,
     capacity: usize,
     bytes: usize,
+    #[cfg(feature = "reconcile-trace")]
+    trace: Option<trace::ReconcileTrace>,
 }
 
 impl FastReconcile {
@@ -49,7 +62,15 @@ impl FastReconcile {
             moves: 4,
             capacity: 128,
             bytes: 16 * 1024 * 1024,
+            #[cfg(feature = "reconcile-trace")]
+            trace: None,
         }
+    }
+    /// Attach opt-in timing diagnostics without changing command scheduling.
+    #[cfg(feature = "reconcile-trace")]
+    pub fn with_trace(mut self, trace: trace::ReconcileTrace) -> Self {
+        self.trace = Some(trace);
+        self
     }
     /// Set all three local worker limits to the same value.
     pub fn workers(mut self, count: usize) -> Self {
@@ -93,8 +114,17 @@ impl Default for FastReconcile {
 }
 
 impl ReconcileHandler for FastReconcile {
+    /// Share the configured timeline with the connection and local workers.
+    #[cfg(feature = "reconcile-trace")]
+    fn trace(&self) -> Option<trace::ReconcileTrace> {
+        self.trace.clone()
+    }
     /// Pair the single server enumerator with parallel local scanning and comparisons.
     fn pipeline(&self) -> bool {
+        true
+    }
+    /// Keep timestamp matches on the fetch thread without a worker queue round trip.
+    fn inline_timestamp(&self) -> bool {
         true
     }
     /// Route directory, digest, and move work to separate worker limits.

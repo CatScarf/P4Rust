@@ -44,6 +44,7 @@ pub(super) struct Metadata {
 impl Metadata {
     // Compact each registry shard after the local enumeration workers have joined.
     pub(super) fn compact(&self) -> Result<()> {
+        reconcile_span!("metadata_compact");
         for shard in &self.directories {
             shard
                 .lock()
@@ -65,19 +66,25 @@ impl Metadata {
     }
     // Enumerate each directory once while publishing its result without holding a registry lock.
     pub(super) fn directory(&self, path: &std::path::Path) -> Result<sync::Arc<Directory>> {
+        reconcile_span!("directory_cache");
         let spelling = path
             .to_str()
             .context("Failed to encode metadata directory")?;
         let hash = Path::hash_of(spelling);
+        #[cfg(feature = "reconcile-trace")]
+        let waiting = crate::ReconcileTrace::span("directory_registry_lock_wait");
         let mut directories = self.directories[hash as usize % self.directories.len()]
             .lock()
             .map_err(|_| crate::Error::new("Failed to lock directory registry"))?;
+        #[cfg(feature = "reconcile-trace")]
+        drop(waiting);
         let slot = sync::Arc::clone(
             directories
                 .get_or_insert_with(spelling, || sync::Arc::new(sync::OnceLock::new()))
                 .context("Failed to retain shared directory slot")?,
         );
         drop(directories);
+        reconcile_span!("directory_init_wait");
         slot.get_or_init(|| {
             self.listings.fetch_add(1, atomic::Ordering::Relaxed);
             self.read_directory(path)
@@ -89,13 +96,20 @@ impl Metadata {
     }
     // Preserve names, errors, and symlink boundaries through the portable third-party walker.
     fn read_directory(&self, path: &std::path::Path) -> Result<Directory> {
+        reconcile_span!("directory_read_metadata");
         let mut files = Names::new();
         let mut entries = Vec::new();
-        for entry in walkdir::WalkDir::new(path)
+        let mut walker = walkdir::WalkDir::new(path)
             .follow_links(false)
             .follow_root_links(false)
             .max_depth(1)
-        {
+            .into_iter();
+        loop {
+            let entry = {
+                reconcile_span!("walker_next");
+                walker.next()
+            };
+            let Some(entry) = entry else { break };
             let entry = match entry {
                 Ok(entry) => entry,
                 Err(error)
@@ -118,21 +132,27 @@ impl Metadata {
                 entries.push(entry.into_path());
                 continue;
             };
-            let snapshot = entry
-                .metadata()
-                .context("Failed to read walker metadata")
-                .and_then(|metadata| Self::snapshot(entry.path(), &metadata))
-                .map(Stat::from)
-                .map_err(sync::Arc::new);
+            let snapshot = {
+                reconcile_span!("filesystem_metadata");
+                entry
+                    .metadata()
+                    .context("Failed to read walker metadata")
+                    .and_then(|metadata| Self::snapshot(entry.path(), &metadata))
+                    .map(Stat::from)
+                    .map_err(sync::Arc::new)
+            };
             files
                 .push(spelling, snapshot)
                 .context("Failed to retain enumerated metadata")?;
             self.files.fetch_add(1, atomic::Ordering::Relaxed);
             entries.push(entry.into_path());
         }
-        files
-            .finish()
-            .context("Failed to finish compact directory names")?;
+        {
+            reconcile_span!("filename_compress");
+            files
+                .finish()
+                .context("Failed to finish compact directory names")?;
+        }
         Ok(Directory {
             files: sync::Mutex::new(files),
             entries: sync::Mutex::new(entries),
@@ -141,6 +161,7 @@ impl Metadata {
     }
     // Retain one compact metadata value for each existing or missing path.
     fn raw(&self, path: &std::path::Path) -> Result<Snapshot> {
+        reconcile_span!("metadata_lookup");
         let parent = path.parent().context("Failed to find metadata parent")?;
         let directory = self
             .directory(parent)
@@ -149,10 +170,16 @@ impl Metadata {
             .file_name()
             .and_then(std::ffi::OsStr::to_str)
             .context("Failed to encode metadata filename")?;
-        let snapshot = directory
+        #[cfg(feature = "reconcile-trace")]
+        let waiting = crate::ReconcileTrace::span("file_slots_lock_wait");
+        let mut files = directory
             .files
             .lock()
-            .map_err(|_| crate::Error::new("Failed to lock shared file slots"))?
+            .map_err(|_| crate::Error::new("Failed to lock shared file slots"))?;
+        #[cfg(feature = "reconcile-trace")]
+        drop(waiting);
+        reconcile_span!("file_name_lookup");
+        let snapshot = files
             .get_or_insert_with(name, || {
                 self.files.fetch_add(1, atomic::Ordering::Relaxed);
                 Ok(Stat::default())

@@ -1,4 +1,4 @@
-use super::{local::Agent, tables::Tables};
+use super::{local::Agent, tables::shared::Shared};
 use crate::{Config, Result, ResultExt, control::Control};
 use std::{collections::VecDeque, path::PathBuf, sync, thread};
 
@@ -20,7 +20,7 @@ impl Scanner {
         workers: usize,
         hashes: bool,
         ignore: bool,
-        tables: &sync::Arc<Tables>,
+        tables: &sync::Arc<Shared>,
         control: &Control,
     ) -> Result<()> {
         let scanner = Self {
@@ -33,19 +33,30 @@ impl Scanner {
         };
         thread::scope(|scope| {
             let mut jobs = Vec::new();
-            for _ in 0..workers {
+            for index in 0..workers {
+                #[cfg(feature = "reconcile-trace")]
+                let trace = super::super::trace::ReconcileTrace::current();
                 let scanner = &scanner;
                 let config = &config;
-                jobs.push(scope.spawn(move || {
-                    let result = scanner
-                        .work(config, hashes, ignore, tables, control)
-                        .context("Failed local scan worker");
-                    if result.is_err() {
-                        control.cancel();
-                        scanner.changed.notify_all();
-                    }
-                    result
-                }));
+                jobs.push(
+                    thread::Builder::new()
+                        .name(format!("p4rust-local-scan-{index}"))
+                        .spawn_scoped(scope, move || {
+                            #[cfg(feature = "reconcile-trace")]
+                            let _attachment = super::super::trace::ReconcileTrace::attach(trace)
+                                .context("Failed to attach local scanner trace")?;
+                            reconcile_span!("scan_worker");
+                            let result = scanner
+                                .work(config, hashes, ignore, tables, control)
+                                .context("Failed local scan worker");
+                            if result.is_err() {
+                                control.cancel();
+                                scanner.changed.notify_all();
+                            }
+                            result
+                        })
+                        .context("Failed to spawn named local scan worker")?,
+                );
             }
             let mut failure = None;
             for job in jobs {
@@ -63,6 +74,7 @@ impl Scanner {
 
     // Take one directory or wait until active workers discover additional children.
     fn next(&self, control: &Control) -> Result<Option<PathBuf>> {
+        reconcile_span!("scan_queue_wait");
         let mut state = self
             .state
             .lock()
@@ -95,7 +107,7 @@ impl Scanner {
         config: &Config,
         hashes: bool,
         ignore: bool,
-        tables: &Tables,
+        tables: &Shared,
         control: &Control,
     ) -> Result<()> {
         let agent = Agent::new(config, control, ignore, &tables.stop)
@@ -103,10 +115,10 @@ impl Scanner {
         while !tables.stop.load(sync::atomic::Ordering::Acquire)
             && let Some(path) = self.next(control).context("Failed to get scan directory")?
         {
-            Self::probes(&agent, hashes, tables)
+            Self::probes(&agent, hashes, tables, control)
                 .context("Failed to process targeted local probes")?;
             let result = self
-                .directory(&path, &agent, hashes, tables)
+                .directory(&path, &agent, hashes, tables, control)
                 .context("Failed to inspect local directory");
             let mut state = self
                 .state
@@ -127,7 +139,8 @@ impl Scanner {
     }
 
     // Service SDK flow-control requests ahead of unrelated local enumeration work.
-    fn probes(agent: &Agent<'_>, hashes: bool, tables: &Tables) -> Result<()> {
+    fn probes(agent: &Agent<'_>, hashes: bool, tables: &Shared, control: &Control) -> Result<()> {
+        reconcile_span!("targeted_probes");
         while let Some(path) = tables
             .probe()
             .context("Failed to select targeted local path")?
@@ -137,7 +150,7 @@ impl Scanner {
                 .inspect(&path, agent, hashes)
                 .context("Failed to probe server-listed file")?;
             tables
-                .probed(&path, snapshot)
+                .probed(path, snapshot, control)
                 .context("Failed to publish targeted local record")?;
         }
         Ok(())
@@ -149,8 +162,10 @@ impl Scanner {
         directory: &std::path::Path,
         agent: &Agent,
         hashes: bool,
-        tables: &Tables,
+        tables: &Shared,
+        control: &Control,
     ) -> Result<Vec<PathBuf>> {
+        reconcile_span!("scan_directory");
         let Some(path) = directory.to_str() else {
             tables.use_fallback();
             return Ok(Vec::new());
@@ -168,6 +183,7 @@ impl Scanner {
             .directory(directory)
             .with_context(|| format!("Failed to enumerate {}", directory.display()))?;
         let mut children = Vec::new();
+        let mut batch = Vec::with_capacity(64);
         for path in entries
             .entries()
             .context("Failed to consume shared directory entries")?
@@ -175,7 +191,7 @@ impl Scanner {
             if tables.stop.load(sync::atomic::Ordering::Acquire) {
                 break;
             }
-            Self::probes(agent, hashes, tables)
+            Self::probes(agent, hashes, tables, control)
                 .context("Failed to advance server-prioritized probes")?;
             let Some(spelling) = path.to_str() else {
                 tables.use_fallback();
@@ -205,11 +221,17 @@ impl Scanner {
                     .metadata
                     .inspect(path, agent, hashes)
                     .context("Failed to reuse scanned snapshot")?;
-                tables
-                    .local(path, snapshot)
-                    .context("Failed to pair scanned local record")?;
+                batch.push((path.to_owned(), snapshot));
+                if batch.len() == 64 {
+                    tables
+                        .publish(&mut batch, control)
+                        .context("Failed to publish scanned local records")?;
+                }
             }
         }
+        tables
+            .publish(&mut batch, control)
+            .context("Failed to flush directory batch")?;
         Ok(children)
     }
 }

@@ -22,6 +22,11 @@ impl Native {
         capture: &Capture,
         reconcile: Option<&std::sync::Arc<dyn crate::ReconcileHandler>>,
     ) -> Result<crate::CommandStatus> {
+        #[cfg(feature = "reconcile-trace")]
+        let _trace_attachment =
+            crate::ReconcileTrace::attach(reconcile.and_then(|handler| handler.trace()))
+                .context("Failed to attach native command trace")?;
+        reconcile_span!("command");
         // This version query has no pointer arguments or runtime side effects.
         ensure!(
             unsafe { ffi::p4rust_abi_version() } == ffi::ABI_VERSION,
@@ -68,6 +73,10 @@ impl Native {
                 .finish()
                 .context("Failed to finish reconcile scheduler")?;
         }
+        {
+            reconcile_span!("runtime_release");
+            drop(runtime);
+        }
         result.context("Failed to invoke native command")
     }
 
@@ -101,6 +110,7 @@ impl Native {
         let pointers: Vec<*const c_char> = strings.iter().map(|arg| arg.as_ptr()).collect();
         let count = i32::try_from(pointers.len()).context("Failed to encode argument count")?;
         // The owned worker outlives the synchronous native call and every parallel callback.
+        reconcile_span!("native_session");
         let status = unsafe {
             if let Some((runtime, moves)) = reconcile {
                 ffi::p4rust_execute_reconcile_v3(

@@ -29,9 +29,6 @@ int ReconcileScope::Call(uint32_t operation) {
 // Transfer ownership even when admission fails so Rust can clean up the job.
 void ReconcileScope::Submit(Task* pointer) {
     std::unique_ptr<Task> task(pointer);
-    const auto path = task->request.Get("localPath");
-    p4rust_local_v5 snapshot{};
-    if (!task->local && !path.empty() && Snapshot(path.c_str(), snapshot)) task->Snapshot(snapshot);
     auto fields = task->request.Frame();
     auto* owned = task.release();
     if (callback(scheduler, 1, owned, reinterpret_cast<const uint8_t*>(fields.data()),
