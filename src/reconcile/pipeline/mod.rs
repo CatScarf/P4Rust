@@ -1,5 +1,6 @@
 pub(crate) mod local;
 mod metadata;
+mod names;
 mod path;
 mod results;
 mod scanner;

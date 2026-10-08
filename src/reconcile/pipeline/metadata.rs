@@ -1,6 +1,7 @@
 use super::{
     local::{Agent, Snapshot},
-    path::Path,
+    names::Names,
+    path::{Path, PathRef},
 };
 use crate::{Result, ResultExt};
 use std::{
@@ -22,10 +23,10 @@ struct Stat {
     flags: i32,
 }
 struct ContentIndex {
-    files: sync::Mutex<HashMap<Path, Contents>>,
+    files: sync::Mutex<Names<Contents>>,
 }
 pub(super) struct Directory {
-    files: sync::Mutex<HashMap<Path, Stored<Stat>>>,
+    files: sync::Mutex<Names<Stored<Stat>>>,
     entries: sync::Mutex<Vec<PathBuf>>,
     contents: sync::OnceLock<Box<ContentIndex>>,
 }
@@ -53,13 +54,18 @@ impl Metadata {
         let spelling = path
             .to_str()
             .context("Failed to encode metadata directory")?;
-        let key = Path::new(spelling);
-        let slot = self.directories[key.shard(self.directories.len())]
+        let hash = Path::hash_of(spelling);
+        let mut directories = self.directories[hash as usize % self.directories.len()]
             .lock()
-            .map_err(|_| crate::Error::new("Failed to lock directory registry"))?
-            .entry(key)
-            .or_insert_with(|| sync::Arc::new(sync::OnceLock::new()))
-            .clone();
+            .map_err(|_| crate::Error::new("Failed to lock directory registry"))?;
+        let slot = if let Some(slot) = directories.get(PathRef::new(spelling)) {
+            sync::Arc::clone(slot)
+        } else {
+            let slot = sync::Arc::new(sync::OnceLock::new());
+            directories.insert(Path::new(spelling), sync::Arc::clone(&slot));
+            slot
+        };
+        drop(directories);
         slot.get_or_init(|| {
             self.listings.fetch_add(1, atomic::Ordering::Relaxed);
             self.read_directory(path)
@@ -71,7 +77,7 @@ impl Metadata {
     }
     // Preserve names, errors, and symlink boundaries through the portable third-party walker.
     fn read_directory(&self, path: &std::path::Path) -> Result<Directory> {
-        let mut files = HashMap::new();
+        let mut files = Names::new();
         let mut entries = Vec::new();
         for entry in walkdir::WalkDir::new(path)
             .follow_links(false)
@@ -106,10 +112,13 @@ impl Metadata {
                 .and_then(|metadata| Self::snapshot(entry.path(), &metadata))
                 .map(Stat::from)
                 .map_err(sync::Arc::new);
-            files.insert(Path::new(spelling), snapshot);
+            files
+                .push(spelling, snapshot)
+                .context("Failed to retain enumerated metadata")?;
             self.files.fetch_add(1, atomic::Ordering::Relaxed);
             entries.push(entry.into_path());
         }
+        files.finish();
         Ok(Directory {
             files: sync::Mutex::new(files),
             entries: sync::Mutex::new(entries),
@@ -122,20 +131,19 @@ impl Metadata {
         let directory = self
             .directory(parent)
             .context("Failed to obtain file directory")?;
-        let key = Path::new(
-            path.file_name()
-                .and_then(std::ffi::OsStr::to_str)
-                .context("Failed to encode metadata filename")?,
-        );
+        let name = path
+            .file_name()
+            .and_then(std::ffi::OsStr::to_str)
+            .context("Failed to encode metadata filename")?;
         let snapshot = directory
             .files
             .lock()
             .map_err(|_| crate::Error::new("Failed to lock shared file slots"))?
-            .entry(key)
-            .or_insert_with(|| {
+            .get_or_insert_with(name, || {
                 self.files.fetch_add(1, atomic::Ordering::Relaxed);
                 Ok(Stat::default())
             })
+            .context("Failed to cache path classification")?
             .clone();
         self.reuses.fetch_add(1, atomic::Ordering::Relaxed);
         snapshot
@@ -327,7 +335,7 @@ impl Metadata {
         let index = if create {
             Some(directory.contents.get_or_init(|| {
                 Box::new(ContentIndex {
-                    files: sync::Mutex::new(HashMap::new()),
+                    files: sync::Mutex::new(Names::new()),
                 })
             }))
         } else {
@@ -340,20 +348,19 @@ impl Metadata {
             .files
             .lock()
             .map_err(|_| crate::Error::new("Failed to lock canonical content slots"))?;
-        let key = Path::new(
-            path.file_name()
-                .and_then(std::ffi::OsStr::to_str)
-                .context("Failed to encode content filename")?,
-        );
+        let name = path
+            .file_name()
+            .and_then(std::ffi::OsStr::to_str)
+            .context("Failed to encode content filename")?;
         Ok(if create {
             Some(
                 contents
-                    .entry(key)
-                    .or_insert_with(|| sync::Arc::new(sync::OnceLock::new()))
+                    .get_or_insert_with(name, || sync::Arc::new(sync::OnceLock::new()))
+                    .context("Failed to cache content synchronization")?
                     .clone(),
             )
         } else {
-            contents.get(&key).cloned()
+            contents.get(name).cloned()
         })
     }
 }
