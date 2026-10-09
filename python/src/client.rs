@@ -2,7 +2,7 @@ use crate::{conversion::Conversion, stream::Stream};
 use pyo3::{exceptions::PyValueError, prelude::*};
 use std::time::Duration;
 
-#[pyclass(name = "_CancellationToken", frozen)]
+#[pyclass(name = "_CancellationToken", frozen, skip_from_py_object)]
 #[derive(Clone, Default)]
 pub(crate) struct CancellationToken(pub(crate) p4rust::CancellationToken);
 
@@ -60,7 +60,7 @@ impl Client {
     }
 }
 
-#[pyclass(name = "_Command", frozen)]
+#[pyclass(name = "_Command", frozen, skip_from_py_object)]
 #[derive(Clone)]
 pub(crate) struct Command {
     config: p4rust::Config,

@@ -21,6 +21,13 @@ impl Dependencies {
     pub(crate) fn install(platform: &Platform) -> Result<()> {
         if !platform.windows() {
             if std::env::var_os("P4RUST_MANYLINUX").is_some() {
+                if !Self::present("llvm-strip") {
+                    Runner::run(
+                        Command::new("dnf").args(["install", "-y", "llvm", "nasm"]),
+                        false,
+                    )
+                    .context("Failed to install missing manylinux archive tools")?;
+                }
                 Runner::run(
                     Command::new("git").args([
                         "config",
