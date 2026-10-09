@@ -228,7 +228,7 @@ dependencies = [
 
 [[package]]
 name = "p4rust"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "crossbeam-channel",
  "p4rust-resources-aarch64-apple-darwin",
@@ -242,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "p4rust-python"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "p4rust",
  "pyo3",

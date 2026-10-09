@@ -4,10 +4,10 @@ Safe Rust bindings to the Perforce 2026.1 C++ API. Precompiled resources support
 
 ## Published Packages
 
-| Package | Link | Language | Compatibility |
-| --- | --- | --- | --- |
-| p4rust | [crates.io](https://crates.io/crates/p4rust) | Rust | Windows MSVC, Linux GNU (glibc 2.28+), macOS 12+; x64 and ARM64. Consumers compile only Rust. |
-| p4rust | [PyPI](https://pypi.org/project/p4rust/) | Python | CPython 3.9+ (`cp39-abi3`), including free-threaded CPython 3.15+ (`cp315-abi3.abi3t`); Windows, Linux (glibc 2.28+), macOS 12+; x64 and ARM64. |
+| Language | Link | Compatibility |
+| --- | --- | --- |
+| Rust | [crates.io](https://crates.io/crates/p4rust) | Windows MSVC, Linux GNU (glibc 2.28+), macOS 12+; x64 and ARM64. Consumers compile only Rust. |
+| Python | [PyPI](https://pypi.org/project/p4rust/) | CPython 3.9+ (`cp39-abi3`), including free-threaded CPython 3.15+ (`cp315-abi3.abi3t`); Windows, Linux (glibc 2.28+), macOS 12+; x64 and ARM64. |
 
 ## Rust
 
@@ -52,11 +52,9 @@ fn main() -> Result<()> {
 }
 ```
 
-`run()` returns `CommandStream`, an `Iterator<Item = Result<Event>>`. Add `.input(form)`, `.timeout(duration)`, or `.cancellation(&token)` before `run()` as needed. Use `collect_output()` to gather the stream into one `Output`.
+`run()` streams events; `collect_output()` collects results. Configure input, timeout, and cancellation on the builder.
 
-Use `FastReconcile` for one server connection with parallel local scanning, canonical comparisons, and move matching. Set `Config.charset` to `utf8` for the concurrent path pipeline on Unicode servers; other encodings retain SDK traversal.
-
-The concurrent pipeline uses the cross-platform `walkdir` walker and shares one metadata snapshot per path for each command, including native comparisons.
+Use `FastReconcile` for parallel local processing.
 
 ```rust
 let events = client
@@ -76,9 +74,7 @@ for event in events {
 }
 ```
 
-`-n` previews changes; remove it to apply them. `-m` uses the SDK timestamp shortcut; omit it to compare contents. Add `-M` for SDK move detection. A sharded path table pairs server and local records immediately; a digest table matches Add/Delete candidates, and the result table retains final SDK classifications. SDK mappings, ignore rules, file types, text conversions, and similarity matching still apply. `queue_capacity()` and `queue_bytes()` bound pending RPC tasks and metadata. Custom `ReconcileHandler` implementations inspect owned requests and use `request.execute()` for SDK computation; `progress()` receives pipeline counters.
-
-Binding code is licensed under MIT; resource crates retain the Perforce and OpenSSL licenses.
+`-n` previews changes; `-m` checks timestamps before contents; `-M` enables move detection.
 
 ## Python
 
