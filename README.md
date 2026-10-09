@@ -79,7 +79,7 @@ Binding code is licensed under MIT; resource crates retain the Perforce and Open
 
 ## Python
 
-Download the Python ZIP from [GitHub Releases](https://github.com/CatScarf/P4Rust/releases), extract it, and install the matching wheel with `pip install <wheel.whl>`. Wheels support ordinary CPython 3.9+ and free-threaded CPython 3.15+ on the same six platforms. Public APIs include complete typing and preserve native message codes, bytes, progress, and completion status.
+Install [p4rust from PyPI](https://pypi.org/project/p4rust/) with `pip install p4rust`. Wheels support ordinary CPython 3.9+ and free-threaded CPython 3.15+ on the same six platforms. Public APIs include complete typing and preserve native message codes, bytes, progress, and completion status. The Python ZIP is also available from [GitHub Releases](https://github.com/CatScarf/P4Rust/releases).
 
 ```python
 from p4rust import Client, Config, RecordEvent
@@ -98,8 +98,8 @@ with events:
             print(event.record.fields())
 ```
 
-Use `.input(form)`, `.cancellation(token)`, or `.reconcile_handler(FastReconcile())` before `.run()`. `collect_output()` collects the remaining stream; `close()` cancels a command. Python wheels are attached to Releases and are not uploaded to PyPI.
+Use `.input(form)`, `.cancellation(token)`, or `.reconcile_handler(FastReconcile())` before `.run()`. `collect_output()` collects the remaining stream; `close()` cancels a command.
 
 ## Maintainers
 
-[xtask](xtask/README.md) builds native resources and packages all six targets. GitHub Actions runs builds, Clippy, and Python typing checks, publishes changed crates.io versions, then releases separate Rust and Python ZIPs.
+[xtask](xtask/README.md) builds native resources and packages all six targets. GitHub Actions runs builds, Clippy, and Python typing checks, publishes changed crates.io versions and Python wheels to PyPI, and releases separate Rust and Python ZIPs.

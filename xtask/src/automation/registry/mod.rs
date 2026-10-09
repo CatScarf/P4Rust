@@ -4,8 +4,8 @@ use crate::{
     platform::Platform,
 };
 use std::{env, fs, path, thread, time};
-mod http;
-mod identity;
+pub(crate) mod http;
+pub(crate) mod identity;
 mod package;
 use http::Http;
 use package::Package;

@@ -2,11 +2,11 @@ use crate::error::{Result, ResultExt};
 use sha2::Digest;
 use std::{fs, path::Path};
 
-pub(super) struct Identity;
+pub(crate) struct Identity;
 
 impl Identity {
     // Fingerprint native source inputs independently of public Rust code and package versions.
-    pub(super) fn resource(root: &Path, target: &str) -> Result<String> {
+    pub(crate) fn resource(root: &Path, target: &str) -> Result<String> {
         let mut digest = sha2::Sha256::new();
         Self::add(&mut digest, target, target.as_bytes());
         if target.ends_with("linux-gnu") {

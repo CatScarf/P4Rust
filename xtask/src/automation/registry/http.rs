@@ -6,11 +6,11 @@ use std::{
     process::Command,
 };
 
-pub(super) struct Http;
+pub(crate) struct Http;
 
 impl Http {
     // Fetch public registry data with bounded retries and an identifiable user agent.
-    pub(super) fn get(
+    pub(crate) fn get(
         root: &Path,
         url: &str,
         destination: Option<&Path>,

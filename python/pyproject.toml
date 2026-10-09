@@ -21,7 +21,7 @@ Repository = "https://github.com/CatScarf/P4Rust"
 python-source = "python"
 module-name = "p4rust._native"
 bindings = "pyo3"
-include = ["python/p4rust/**/*.pyi", "python/p4rust/py.typed", "python/p4rust/licenses/*"]
+include = ["python/p4rust/**/*.pyi", "python/p4rust/py.typed", "python/p4rust/licenses/*", "python/p4rust/_inputs.sha256"]
 
 [tool.pyright]
 include = ["python/p4rust"]

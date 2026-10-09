@@ -74,6 +74,7 @@ impl Wheels {
             "p4rust/_native.pyi",
             "p4rust/_events.py",
             "p4rust/licenses/Perforce.txt",
+            "p4rust/_inputs.sha256",
         ] {
             zip.by_name(required)
                 .with_context(|| format!("Failed to find required wheel file {required}"))?;

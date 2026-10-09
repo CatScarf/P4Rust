@@ -18,3 +18,4 @@ __pycache__/
 /python/python/p4rust/*.pyd
 /python/python/p4rust/*.so
 /python/python/p4rust/licenses/
+/python/python/p4rust/_inputs.sha256

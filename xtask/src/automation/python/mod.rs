@@ -1,4 +1,5 @@
 mod container;
+pub(super) mod publish;
 pub(super) mod wheels;
 use super::{Task, command::Runner};
 use crate::{
@@ -22,6 +23,23 @@ impl Python {
     // Install pinned packaging tools and managed interpreters without modifying system Python.
     pub(crate) fn prepare(root: &Path) -> Result<()> {
         let platform = Platform::selected().context("Failed to select Python platform")?;
+        Self::tools(root).context("Failed to prepare Python tools")?;
+        if std::env::var_os("P4RUST_MANYLINUX").is_none() {
+            Self::run(
+                root,
+                &["python", "install", "--no-bin", "3.14", "3.15t"],
+                false,
+            )
+            .context("Failed to install managed Python interpreters")?;
+        }
+        Self::licenses(root, &platform).context("Failed to stage Python native licenses")?;
+        publish::Fingerprint::stamp(root).context("Failed to stamp Python build inputs")?;
+        Ok(())
+    }
+
+    // Download only the publishing executable when an interpreter is unnecessary.
+    fn tools(root: &Path) -> Result<()> {
+        let platform = Platform::selected().context("Failed to select Python tools platform")?;
         let directory = root.join("temp/python-tools");
         fs::create_dir_all(&directory).context("Failed to create Python tools directory")?;
         let uv = Self::uv(root)?;
@@ -51,15 +69,6 @@ impl Python {
             )
             .context("Failed to extract uv")?;
         }
-        if std::env::var_os("P4RUST_MANYLINUX").is_none() {
-            Self::run(
-                root,
-                &["python", "install", "--no-bin", "3.14", "3.15t"],
-                false,
-            )
-            .context("Failed to install managed Python interpreters")?;
-        }
-        Self::licenses(root, &platform).context("Failed to stage Python native licenses")?;
         Ok(())
     }
 

@@ -72,6 +72,9 @@ impl Task {
             "publish" if args.len() == 1 => {
                 github::GitHub::publish(&root).context("Failed to publish release")
             }
+            "publish-python" if args.len() == 1 => {
+                python::publish::Publisher::run(&root).context("Failed to publish Python wheels")
+            }
             "publish-plan" if args.len() == 1 => {
                 registry::Registry::preview(&root).context("Failed to preview registry publication")
             }
@@ -93,7 +96,7 @@ impl Task {
             }
             "help" if args.len() <= 1 => {
                 println!(
-                    "cargo xtask <prepare|build [Cargo options]|check|package|ci-cache|ci|publish|publish-plan|native [--openssl-lib-dir <cache>]>"
+                    "cargo xtask <prepare|build [Cargo options]|check|package|ci-cache|ci|publish|publish-python|publish-plan|native [--openssl-lib-dir <cache>]>"
                 );
                 Ok(())
             }
