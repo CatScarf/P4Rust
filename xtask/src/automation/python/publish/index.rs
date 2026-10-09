@@ -15,9 +15,13 @@ pub(super) struct Index;
 impl Index {
     // Read the immutable files already published for this package version.
     pub(super) fn files(root: &Path, version: &str) -> Result<BTreeMap<String, Published>> {
+        let freshness = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .context("Failed to timestamp PyPI visibility request")?
+            .as_nanos();
         let (status, bytes) = Http::get(
             root,
-            &format!("https://pypi.org/pypi/p4rust/{version}/json"),
+            &format!("https://pypi.org/pypi/p4rust/{version}/json?p4rust-check={freshness}"),
             None,
         )
         .context("Failed to query PyPI version")?;
