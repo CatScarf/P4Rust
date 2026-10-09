@@ -229,12 +229,38 @@ impl Publisher {
 
     // Confirm uploaded filenames and checksums before reporting publication success.
     fn verify(root: &Path, version: &str, paths: &[PathBuf]) -> Result<()> {
-        let published =
-            Index::files(root, version).context("Failed to confirm published wheel inventory")?;
-        ensure!(
-            published.len() == paths.len(),
-            "Failed to confirm twelve published wheels"
-        );
+        for attempt in 0..16 {
+            let published = Index::files(root, version)
+                .context("Failed to confirm published wheel inventory")?;
+            if published.len() == paths.len() {
+                return Self::checksums(paths, &published)
+                    .context("Failed to verify published wheel bytes");
+            }
+            ensure!(
+                published.len() < paths.len(),
+                "Failed to match PyPI wheel inventory"
+            );
+            ensure!(
+                attempt < 15,
+                "Failed to confirm twelve published wheels after registry propagation"
+            );
+            println!(
+                "Waiting for PyPI file visibility: {}/{}",
+                published.len(),
+                paths.len()
+            );
+            std::thread::sleep(std::time::Duration::from_secs(2));
+        }
+        Err(crate::error::Error::new(
+            "Failed to complete PyPI visibility checks",
+        ))
+    }
+
+    // Check every immutable registry checksum once all uploads are visible.
+    fn checksums(
+        paths: &[PathBuf],
+        published: &std::collections::BTreeMap<String, index::Published>,
+    ) -> Result<()> {
         for path in paths {
             let name = path
                 .file_name()
