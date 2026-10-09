@@ -8,6 +8,7 @@ mod cache;
 pub(crate) mod command;
 mod dependencies;
 mod github;
+mod python;
 mod registry;
 use command::Runner;
 use std::{
@@ -20,6 +21,9 @@ pub(crate) struct Task;
 impl Task {
     // Prepare runner dependencies once and produce a checked distributable crate.
     fn ci(root: &Path) -> Result<()> {
+        if python::Container::dispatch(root, "ci")? {
+            return Ok(());
+        }
         let platform =
             crate::platform::Platform::selected().context("Failed to select CI target")?;
         cache::Preparation::dependencies(root, &platform)
@@ -30,10 +34,12 @@ impl Task {
         {
             Producer::run().context("Failed to build CI native libraries")?;
         }
+        python::Python::prepare(root).context("Failed to prepare Python packaging")?;
         Self::cargo(root, "build", &["--release".into()])
             .context("Failed to build CI Rust library")?;
         Self::cargo(root, "check", &[]).context("Failed CI Clippy")?;
-        Self::cargo(root, "package", &[]).context("Failed to package CI crate")
+        Self::cargo(root, "package", &[]).context("Failed to package CI crate")?;
+        python::Python::build(root).context("Failed to build typed Python wheels")
     }
     // Find the repository without depending on the invocation directory.
     fn root() -> Result<PathBuf> {
@@ -57,6 +63,9 @@ impl Task {
         let command = args.first().map(String::as_str).unwrap_or("help");
         match command {
             "ci-cache" if args.len() == 1 => {
+                if python::Container::dispatch(&root, "ci-cache")? {
+                    return Ok(());
+                }
                 cache::Preparation::run(&root).context("Failed to prepare CI cache keys")
             }
             "ci" if args.len() == 1 => Self::ci(&root).context("Failed to build CI package"),
@@ -112,6 +121,8 @@ impl Task {
                 "--workspace",
                 "--exclude",
                 "xtask",
+                "--exclude",
+                "p4rust-python",
                 "--offline",
                 "--allow-dirty",
                 "--exclude-lockfile",
@@ -139,7 +150,20 @@ impl Task {
             args.extend(["--target".into(), platform.target.clone()]);
         }
         args.extend_from_slice(extra);
-        Self::command(root, "cargo", &args).context("Failed to run Cargo")?;
+        if command == "check" {
+            let python = python::Python::interpreter(root, true)
+                .context("Failed to select Clippy Python interpreter")?;
+            Runner::run(
+                Command::new("cargo")
+                    .args(&args)
+                    .current_dir(root)
+                    .env("PYO3_PYTHON", python),
+                false,
+            )
+            .context("Failed to run workspace Clippy")?;
+        } else {
+            Self::command(root, "cargo", &args).context("Failed to run Cargo")?;
+        }
         if command == "package" {
             Self::package_limit(root, &platform).context("Failed to validate package size")?;
         }

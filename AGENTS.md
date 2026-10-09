@@ -33,3 +33,4 @@
 - Do not commit other files larger than 1 MiB, build outputs, caches, or temporary files.
 
 - Do not track PowerShell, Python, shell, or other executable scripts. Implement build, dependency, packaging, and release operations in Rust xtask.
+- Python library modules and type stubs belong under `python/`. Support Python 3.9+, include complete public typing, and validate strict Pyright and type completeness through CI. Build automation remains in xtask.

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["maturin==1.15.0"]
+build-backend = "maturin"
+
+[project]
+name = "p4rust"
+dynamic = ["version"]
+requires-python = ">=3.9"
+description = "Typed streaming Perforce bindings backed by P4Rust"
+license = "MIT"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Repository = "https://github.com/CatScarf/P4Rust"
+
+[tool.maturin]
+python-source = "python"
+module-name = "p4rust._native"
+bindings = "pyo3"
+include = ["python/p4rust/**/*.pyi", "python/p4rust/py.typed", "python/p4rust/licenses/*"]
+
+[tool.pyright]
+include = ["python/p4rust"]
+pythonVersion = "3.9"
+typeCheckingMode = "strict"

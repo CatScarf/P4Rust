@@ -12,7 +12,7 @@ impl GitHub {
         String::from_utf8(output.stdout).context("Failed to decode GitHub CLI output")
     }
 
-    // Merge all target crates and create or replace the release for Cargo's version.
+    // Publish independent Rust and Python ZIP assets under the public Cargo version.
     pub(crate) fn publish(root: &Path) -> Result<()> {
         let metadata = Task::metadata(root).context("Failed to read release metadata")?;
         let version = metadata["packages"]
@@ -32,16 +32,23 @@ impl GitHub {
             env::var("GITHUB_REPOSITORY").context("Failed to read release repository")?;
         let sha = env::var("GITHUB_SHA").context("Failed to read release commit")?;
         let tag = format!("v{version}");
-        let asset = format!("p4rust-{version}.zip");
-        let archive = format!("temp/release-output/{asset}");
+        let assets = [
+            format!("p4rust-rust-{version}.zip"),
+            format!("p4rust-python-{version}.zip"),
+        ];
+        let archives: Vec<_> = assets
+            .iter()
+            .map(|asset| format!("temp/release-output/{asset}"))
+            .collect();
         let title = format!("P4Rust {version}");
-        let notes =
-            format!("Precompiled packages for all six supported targets. Source commit: {sha}.");
+        let notes = format!(
+            "Rust crates and typed Python wheels for six supported targets. Python: ordinary CPython 3.9+ and free-threaded CPython 3.15+. Source commit: {sha}."
+        );
         let exists =
             Self::exists(root, &repository, &tag).context("Failed to locate versioned release")?;
         let mut args = vec!["release"];
         if exists {
-            Self::replace(root, &repository, &sha, &tag, &asset, &archive)
+            Self::replace(root, &repository, &sha, &tag, &assets, &archives)
                 .context("Failed to replace same-version release")?;
             args.extend([
                 "edit",
@@ -52,7 +59,9 @@ impl GitHub {
                 &sha,
             ]);
         } else {
-            args.extend(["create", &tag, &archive, "--target", &sha]);
+            args.extend(["create", &tag]);
+            args.extend(archives.iter().map(String::as_str));
+            args.extend(["--target", &sha]);
         }
         args.extend([
             "--repo",
@@ -88,14 +97,14 @@ impl GitHub {
             .any(|release| release["tagName"] == tag))
     }
 
-    // Replace the current version's tag and ZIP while retaining exactly one uploaded asset.
+    // Replace both current ZIPs and remove obsolete release assets after successful uploads.
     fn replace(
         root: &Path,
         repository: &str,
         sha: &str,
         tag: &str,
-        asset: &str,
-        archive: &str,
+        assets: &[String],
+        archives: &[String],
     ) -> Result<()> {
         Self::gh(
             root,
@@ -112,20 +121,10 @@ impl GitHub {
             false,
         )
         .context("Failed to update release tag")?;
-        Self::gh(
-            root,
-            &[
-                "release",
-                "upload",
-                tag,
-                archive,
-                "--repo",
-                repository,
-                "--clobber",
-            ],
-            false,
-        )
-        .context("Failed to replace release ZIP")?;
+        let mut upload = vec!["release", "upload", tag];
+        upload.extend(archives.iter().map(String::as_str));
+        upload.extend(["--repo", repository, "--clobber"]);
+        Self::gh(root, &upload, false).context("Failed to replace release ZIP")?;
         let release: serde_json::Value = serde_json::from_str(
             &Self::gh(
                 root,
@@ -139,7 +138,7 @@ impl GitHub {
             .as_array()
             .context("Failed to enumerate release assets")?
         {
-            if item["name"] != asset {
+            if !assets.iter().any(|asset| item["name"] == asset.as_str()) {
                 let id = item["id"]
                     .as_u64()
                     .context("Failed to read obsolete asset identifier")?;

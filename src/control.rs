@@ -50,6 +50,11 @@ impl Control {
         self.local.cancel();
     }
 
+    // Share this command's cancellation signal without affecting the caller's token.
+    pub(crate) fn cancellation_token(&self) -> CancellationToken {
+        self.local.clone()
+    }
+
     // Preserve standard I/O interruption kinds for caller error inspection.
     pub(crate) fn error(&self) -> Option<crate::Error> {
         let reason = if self.local.is_cancelled()

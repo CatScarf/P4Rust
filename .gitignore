@@ -12,3 +12,9 @@
 /resources/*/native/
 /resources/*/*-LICENSE.txt
 /resources/*/NATIVE-INPUTS.sha256
+
+__pycache__/
+*.pyc
+/python/python/p4rust/*.pyd
+/python/python/p4rust/*.so
+/python/python/p4rust/licenses/

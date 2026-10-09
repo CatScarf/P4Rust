@@ -1,6 +1,6 @@
 [package]
 name = "p4rust"
-version = "0.1.10"
+version = "0.1.11"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/CatScarf/P4Rust"
@@ -18,7 +18,7 @@ crossbeam-channel = "0.5"
 walkdir = "2.5.0"
 
 [workspace]
-members = ["xtask", "resources/*"]
+members = ["xtask", "resources/*", "python"]
 default-members = ["."]
 resolver = "3"
 
@@ -29,10 +29,10 @@ p4rust-resources-x86_64-pc-windows-msvc = { version = "=0.1.7", path = "resource
 p4rust-resources-aarch64-pc-windows-msvc = { version = "=0.1.7", path = "resources/aarch64-pc-windows-msvc" }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
-p4rust-resources-x86_64-unknown-linux-gnu = { version = "=0.1.7", path = "resources/x86_64-unknown-linux-gnu" }
+p4rust-resources-x86_64-unknown-linux-gnu = { version = "=0.1.8", path = "resources/x86_64-unknown-linux-gnu" }
 
 [target.aarch64-unknown-linux-gnu.dependencies]
-p4rust-resources-aarch64-unknown-linux-gnu = { version = "=0.1.7", path = "resources/aarch64-unknown-linux-gnu" }
+p4rust-resources-aarch64-unknown-linux-gnu = { version = "=0.1.8", path = "resources/aarch64-unknown-linux-gnu" }
 
 [target.x86_64-apple-darwin.dependencies]
 p4rust-resources-x86_64-apple-darwin = { version = "=0.1.7", path = "resources/x86_64-apple-darwin" }

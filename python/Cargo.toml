@@ -1,0 +1,25 @@
+[package]
+name = "p4rust-python"
+version = "0.1.11"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/CatScarf/P4Rust"
+description = "Typed Python bindings for P4Rust"
+publish = false
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+
+[features]
+default = ["abi3"]
+abi3 = ["pyo3/abi3-py39"]
+abi3t = ["pyo3/abi3t-py315"]
+
+[dependencies]
+p4rust = { path = "..", version = "=0.1.11" }
+pyo3 = "=0.29.3"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"

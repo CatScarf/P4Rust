@@ -21,6 +21,11 @@ pub struct CommandStream {
 }
 
 impl CommandStream {
+    /// Share this stream's cancellation signal for interruption from another thread.
+    pub fn cancellation_token(&self) -> crate::CancellationToken {
+        self.control.cancellation_token()
+    }
+
     // Start an owned worker so blocked SDK cleanup cannot outlive borrowed caller data.
     pub(crate) fn start(command: Command, control: Control) -> Result<Self> {
         let queue = Arc::new(Queue::new());

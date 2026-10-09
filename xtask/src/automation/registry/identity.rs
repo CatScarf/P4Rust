@@ -9,6 +9,14 @@ impl Identity {
     pub(super) fn resource(root: &Path, target: &str) -> Result<String> {
         let mut digest = sha2::Sha256::new();
         Self::add(&mut digest, target, target.as_bytes());
+        if target.ends_with("linux-gnu") {
+            Self::tree(
+                &mut digest,
+                root,
+                &root.join("xtask/src/automation/python/container.rs"),
+            )
+            .context("Failed to fingerprint manylinux production policy")?;
+        }
         for relative in [
             "native",
             "xtask/src/sdk",

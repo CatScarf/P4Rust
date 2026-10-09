@@ -59,7 +59,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: p4rust-${{ matrix.target }}
-          path: temp/ci-artifacts/*.crate
+          path: temp/ci-artifacts/*
           if-no-files-found: error
           retention-days: 7
           compression-level: 0

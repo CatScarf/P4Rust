@@ -20,7 +20,23 @@ impl Dependencies {
     // Install native build dependencies for the selected runner and compiler.
     pub(crate) fn install(platform: &Platform) -> Result<()> {
         if !platform.windows() {
-            if platform.apple() {
+            if std::env::var_os("P4RUST_MANYLINUX").is_some() {
+                Runner::run(
+                    Command::new("git").args([
+                        "config",
+                        "--global",
+                        "--add",
+                        "safe.directory",
+                        "/io",
+                    ]),
+                    false,
+                )
+                .context("Failed to register container checkout ownership")?;
+                for tool in ["c++", "perl", "llvm-strip", "llvm-ar"] {
+                    Runner::run(Command::new(tool).arg("--version"), true)
+                        .with_context(|| format!("Failed to locate manylinux tool {tool}"))?;
+                }
+            } else if platform.apple() {
                 Runner::run(
                     Command::new("brew").args(["install", "llvm", "nasm"]),
                     false,
