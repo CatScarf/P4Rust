@@ -7,9 +7,9 @@ use crate::{
 };
 pub(super) use fingerprint::Fingerprint;
 use index::Index;
+use std::io::Read;
+use std::{collections::BTreeSet, fs, io};
 use std::{
-    collections::BTreeSet,
-    fs, io,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -25,7 +25,7 @@ impl Publisher {
         let fingerprint =
             Fingerprint::current(root).context("Failed to identify publication inputs")?;
         for path in &paths {
-            Self::validate(path, &version, &fingerprint)
+            Self::validate(root, path, &version, &fingerprint)
                 .context("Failed to validate candidate wheel")?;
         }
         let pending = Self::plan(root, &version, &fingerprint, &paths)
@@ -182,12 +182,48 @@ impl Publisher {
     }
 
     // Require the maintained input identity as well as the wheel's public packaging contract.
-    fn validate(path: &Path, version: &str, fingerprint: &str) -> Result<()> {
+    fn validate(root: &Path, path: &Path, version: &str, fingerprint: &str) -> Result<()> {
         Wheels::validate(path, version, Self::slot(path)?.1)
             .context("Failed to inspect publication wheel")?;
+        Self::description(root, path).context("Failed to verify wheel project description")?;
         ensure!(
             Fingerprint::read(path)? == fingerprint,
             "Failed to match maintained wheel inputs; bump the public and Python versions before publishing changed inputs"
+        );
+        Ok(())
+    }
+
+    // Require the shared README in every wheel before immutable registry publication.
+    fn description(root: &Path, path: &Path) -> Result<()> {
+        let file = fs::File::open(path).context("Failed to open described wheel")?;
+        let mut archive = zip::ZipArchive::new(file).context("Failed to inspect wheel metadata")?;
+        let name = archive
+            .file_names()
+            .find(|name| name.ends_with(".dist-info/METADATA"))
+            .context("Failed to locate wheel metadata")?
+            .to_owned();
+        let mut text = String::new();
+        archive
+            .by_name(&name)
+            .context("Failed to open wheel metadata")?
+            .read_to_string(&mut text)
+            .context("Failed to read wheel metadata")?;
+        let text = text.replace("\r\n", "\n");
+        let (headers, body) = text
+            .split_once("\n\n")
+            .context("Failed to find wheel description")?;
+        ensure!(
+            headers
+                .lines()
+                .any(|line| line.starts_with("Description-Content-Type: text/markdown")),
+            "Failed to identify Markdown wheel description"
+        );
+        let readme = fs::read_to_string(root.join("README.md"))
+            .context("Failed to read shared project description")?
+            .replace("\r\n", "\n");
+        ensure!(
+            body.trim_end() == readme.trim_end(),
+            "Failed to match wheel description with README.md"
         );
         Ok(())
     }
@@ -212,7 +248,7 @@ impl Publisher {
                     Index::download(root, file, path)
                         .context("Failed to reuse published Python wheel")?;
                 }
-                Self::validate(path, version, fingerprint)
+                Self::validate(root, path, version, fingerprint)
                     .context("Failed to verify unchanged PyPI version")?;
             } else {
                 pending.push(path.clone());

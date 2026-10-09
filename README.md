@@ -2,11 +2,14 @@
 
 Safe Rust bindings to the Perforce 2026.1 C++ API. Precompiled resources support Windows MSVC, Linux GNU, and macOS on x64 and ARM64. Consumers compile only Rust.
 
-## crates.io
+## Published Packages
 
-| Crate | Link |
-| --- | --- |
-| p4rust | [crates.io/crates/p4rust](https://crates.io/crates/p4rust) |
+| Package | Link | Language | Compatibility |
+| --- | --- | --- | --- |
+| p4rust | [crates.io](https://crates.io/crates/p4rust) | Rust | Windows MSVC, Linux GNU (glibc 2.28+), macOS 12+; x64 and ARM64. Consumers compile only Rust. |
+| p4rust | [PyPI](https://pypi.org/project/p4rust/) | Python | CPython 3.9+ (`cp39-abi3`), including free-threaded CPython 3.15+ (`cp315-abi3.abi3t`); Windows, Linux (glibc 2.28+), macOS 12+; x64 and ARM64. |
+
+## Rust
 
 ```toml
 [dependencies]

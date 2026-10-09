@@ -16,6 +16,7 @@ impl Fingerprint {
             "Cargo.toml",
             "Cargo.lock",
             "LICENSE",
+            "README.md",
             "src",
             "python/Cargo.toml",
             "python/pyproject.toml",

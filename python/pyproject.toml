@@ -7,6 +7,7 @@ name = "p4rust"
 dynamic = ["version"]
 requires-python = ">=3.9"
 description = "Typed streaming Perforce bindings backed by P4Rust"
+readme = "../README.md"
 license = "MIT"
 classifiers = [
     "Programming Language :: Python :: 3",
