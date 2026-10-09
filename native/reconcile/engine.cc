@@ -82,55 +82,70 @@ void ReconcileScope::Fail(const char* message) noexcept {
 }
 // Copy the receive dictionary into stable command-owned strings.
 void Fields::Copy(StrDict* dictionary) {
+    const int count = dictionary->GetCount();
+    if (count < 0 || count > 16384) throw std::runtime_error("Failed to bound reconcile metadata count");
+    values.reserve(values.size() + static_cast<size_t>(count));
     StrRef key, value;
     for (int index = 0; dictionary->GetVar(index, key, value); ++index)
         Set(std::string(key.Text(), key.Length()), std::string(value.Text(), value.Length()));
+}
+// Borrow only the original fields; later worker-only snapshot fields are excluded.
+void Fields::Inherit(const Fields& source) {
+    if (&source == this || source.inherited) throw std::runtime_error("Failed to inherit nested reconcile metadata");
+    values.clear();
+    inherited = &source;
+    inherited_count = source.values.size();
 }
 // Retain exactly one owned entry for a field name.
 void Fields::Set(const std::string& name, const std::string& value) {
     for (auto& field : values) if (field.first == name) { field.second = value; return; }
     values.emplace_back(name, value);
 }
-// Read an optional owned field without inserting or modifying the dictionary.
-std::string Fields::Get(const std::string& name) const {
-    for (const auto& field : values) if (field.first == name) return field.second;
-    return {};
+// Read an optional field without inserting or modifying the dictionary.
+const std::string& Fields::Get(const std::string& name) const {
+    if (const auto* field = Find(name)) return field->second;
+    if (inherited) for (size_t index = 0; index < inherited_count; ++index)
+        if (inherited->values[index].first == name) return inherited->values[index].second;
+    static const std::string empty;
+    return empty;
 }
 // Distinguish missing protocol values from empty values.
 bool Fields::Has(const std::string& name) const {
-    for (const auto& field : values) if (field.first == name) return true;
+    if (Find(name)) return true;
+    if (inherited) for (size_t index = 0; index < inherited_count; ++index)
+        if (inherited->values[index].first == name) return true;
     return false;
 }
 // Bound protocol metadata before constructing borrowed FFI descriptors.
 std::vector<p4rust_field_v2> Fields::Frame() const {
-    if (values.size() > 16384) throw std::runtime_error("Failed to bound reconcile metadata fields");
     size_t bytes = 0;
     std::vector<p4rust_field_v2> frame;
-    frame.reserve(values.size());
-    for (const auto& field : values) {
+    frame.reserve(std::min<size_t>(values.size() + inherited_count, 16384));
+    Each([&](const auto& field) {
+        if (frame.size() == 16384) throw std::runtime_error("Failed to bound reconcile metadata fields");
         if (field.first.size() > 1048576 - bytes || field.second.size() > 1048576 - bytes - field.first.size())
             throw std::runtime_error("Failed to bound reconcile metadata: exceeds 1 MiB");
         bytes += field.first.size() + field.second.size();
         frame.push_back({reinterpret_cast<const uint8_t*>(field.first.data()), field.first.size(),
                          reinterpret_cast<const uint8_t*>(field.second.data()), field.second.size()});
-    }
+    });
     return frame;
 }
 // Reproduce Confirm's field copying from the original request rather than the current buffer.
 void Fields::Reply(Client* client) const {
     if (client->protocolServer < 6) client->GetEnv();
-    for (const auto& field : values) {
+    Each([&](const auto& field) {
         if (field.first == "func" || field.first == "data" || field.first == "kind" || field.first == "localPath" ||
             field.first == "localSize" || field.first == "localTime" || field.first == "localType" ||
             field.first == "localDigest" || field.first == "cachedDigest" || field.first == "timestampMatch" ||
             field.first == "localCharset" || field.first == "localCanonicalSize" ||
             field.first == "candidateDigest" ||
             field.first == "hashedBytes" ||
-            field.first == "canonicalType") continue;
+            field.first == "canonicalType") return;
         StrRef key(field.first.data(), static_cast<int>(field.first.size()));
         StrRef value(field.second.data(), static_cast<int>(field.second.size()));
         client->SetVar(key, value);
-    }
+    });
     const auto confirm = Get("confirm");
     if (confirm.empty()) throw std::runtime_error("Failed to confirm reconcile request: missing callback");
     client->Invoke(confirm.c_str());

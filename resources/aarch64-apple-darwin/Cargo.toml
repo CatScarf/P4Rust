@@ -1,6 +1,6 @@
 [package]
 name = "p4rust-resources-aarch64-apple-darwin"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
 license = "MIT AND BSD-2-Clause AND Apache-2.0"
 description = "Precompiled Perforce C ABI resources for aarch64-apple-darwin"

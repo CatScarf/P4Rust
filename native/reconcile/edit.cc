@@ -8,7 +8,7 @@ public:
     EditTask(ReconcileScope& scope, Client* client, FileSys* input) : Task(scope, "tracked"), file(input) {
         request.Copy(client);
         request.Set("localPath", file->Name());
-        result = request;
+        result.Inherit(request);
         if (auto* cvt = ClientSvc::XCharset(client, FromClient)) translator.reset(cvt->Clone());
     }
     // Preserve the SDK's missing, symlink, size, time, and digest comparison order.

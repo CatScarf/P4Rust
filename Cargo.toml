@@ -1,6 +1,6 @@
 [package]
 name = "p4rust"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/CatScarf/P4Rust"
@@ -23,22 +23,22 @@ default-members = ["."]
 resolver = "3"
 
 [target.x86_64-pc-windows-msvc.dependencies]
-p4rust-resources-x86_64-pc-windows-msvc = { version = "=0.1.6", path = "resources/x86_64-pc-windows-msvc" }
+p4rust-resources-x86_64-pc-windows-msvc = { version = "=0.1.7", path = "resources/x86_64-pc-windows-msvc" }
 
 [target.aarch64-pc-windows-msvc.dependencies]
-p4rust-resources-aarch64-pc-windows-msvc = { version = "=0.1.6", path = "resources/aarch64-pc-windows-msvc" }
+p4rust-resources-aarch64-pc-windows-msvc = { version = "=0.1.7", path = "resources/aarch64-pc-windows-msvc" }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
-p4rust-resources-x86_64-unknown-linux-gnu = { version = "=0.1.6", path = "resources/x86_64-unknown-linux-gnu" }
+p4rust-resources-x86_64-unknown-linux-gnu = { version = "=0.1.7", path = "resources/x86_64-unknown-linux-gnu" }
 
 [target.aarch64-unknown-linux-gnu.dependencies]
-p4rust-resources-aarch64-unknown-linux-gnu = { version = "=0.1.6", path = "resources/aarch64-unknown-linux-gnu" }
+p4rust-resources-aarch64-unknown-linux-gnu = { version = "=0.1.7", path = "resources/aarch64-unknown-linux-gnu" }
 
 [target.x86_64-apple-darwin.dependencies]
-p4rust-resources-x86_64-apple-darwin = { version = "=0.1.6", path = "resources/x86_64-apple-darwin" }
+p4rust-resources-x86_64-apple-darwin = { version = "=0.1.7", path = "resources/x86_64-apple-darwin" }
 
 [target.aarch64-apple-darwin.dependencies]
-p4rust-resources-aarch64-apple-darwin = { version = "=0.1.6", path = "resources/aarch64-apple-darwin" }
+p4rust-resources-aarch64-apple-darwin = { version = "=0.1.7", path = "resources/aarch64-apple-darwin" }
 
 
 [lints.clippy]

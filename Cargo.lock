@@ -178,7 +178,7 @@ dependencies = [
 
 [[package]]
 name = "p4rust"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "crossbeam-channel",
  "p4rust-resources-aarch64-apple-darwin",
@@ -192,27 +192,27 @@ dependencies = [
 
 [[package]]
 name = "p4rust-resources-aarch64-apple-darwin"
-version = "0.1.6"
+version = "0.1.7"
 
 [[package]]
 name = "p4rust-resources-aarch64-pc-windows-msvc"
-version = "0.1.6"
+version = "0.1.7"
 
 [[package]]
 name = "p4rust-resources-aarch64-unknown-linux-gnu"
-version = "0.1.6"
+version = "0.1.7"
 
 [[package]]
 name = "p4rust-resources-x86_64-apple-darwin"
-version = "0.1.6"
+version = "0.1.7"
 
 [[package]]
 name = "p4rust-resources-x86_64-pc-windows-msvc"
-version = "0.1.6"
+version = "0.1.7"
 
 [[package]]
 name = "p4rust-resources-x86_64-unknown-linux-gnu"
-version = "0.1.6"
+version = "0.1.7"
 
 [[package]]
 name = "proc-macro2"

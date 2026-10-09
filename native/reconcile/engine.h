@@ -71,13 +71,36 @@ public:
 
 class Fields {
     std::vector<std::pair<std::string, std::string>> values;
+    const Fields* inherited = nullptr;
+    size_t inherited_count = 0;
+    // Find an owned override without allocating a temporary string.
+    const std::pair<std::string, std::string>* Find(const std::string& name) const {
+        for (const auto& field : values) if (field.first == name) return &field;
+        return nullptr;
+    }
+    // Visit inherited entries in their original order and append only new overrides.
+    template<class Consumer> void Each(Consumer consume) const {
+        if (inherited) for (size_t index = 0; index < inherited_count; ++index) {
+            const auto& field = inherited->values[index];
+            const auto* override = Find(field.first);
+            consume(override ? *override : field);
+        }
+        for (const auto& field : values) {
+            bool present = false;
+            if (inherited) for (size_t index = 0; index < inherited_count; ++index)
+                if (inherited->values[index].first == field.first) { present = true; break; }
+            if (!present) consume(field);
+        }
+    }
 public:
+    // Reuse an exclusively owned task's frozen metadata without duplicating every value.
+    void Inherit(const Fields& source);
     // Copy SDK receive variables before the dispatcher reuses their storage.
     void Copy(StrDict*);
     // Replace one owned metadata value without retaining borrowed SDK pointers.
     void Set(const std::string&, const std::string&);
-    // Read an owned value or the empty optional-field fallback.
-    std::string Get(const std::string&) const;
+    // Borrow an inherited or owned value, using the empty optional-field fallback.
+    const std::string& Get(const std::string&) const;
     // Preserve the distinction between a missing field and an empty field.
     bool Has(const std::string&) const;
     // Borrow bounded field descriptors during one synchronous FFI callback.
