@@ -27,3 +27,5 @@ include = ["python/p4rust/**/*.pyi", "python/p4rust/py.typed", "python/p4rust/li
 include = ["python/p4rust"]
 pythonVersion = "3.9"
 typeCheckingMode = "strict"
+reportPrivateUsage = false
+reportMissingModuleSource = false

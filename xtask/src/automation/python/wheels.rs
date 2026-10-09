@@ -7,6 +7,14 @@ use std::{
 pub(crate) struct Wheels;
 
 impl Wheels {
+    // Inspect packaged typing without executing a foreign-architecture extension.
+    pub(crate) fn extract(path: &Path, destination: &Path) -> Result<()> {
+        let file = fs::File::open(path).context("Failed to open typed Python wheel")?;
+        let mut zip = zip::ZipArchive::new(file).context("Failed to inspect typed Python wheel")?;
+        zip.extract(destination)
+            .context("Failed to extract typed Python wheel")
+    }
+
     // Find the ordinary stable ABI wheel without assuming a platform tag spelling.
     pub(crate) fn regular(root: &Path) -> Result<PathBuf> {
         for entry in fs::read_dir(root.join("temp/ci-artifacts"))

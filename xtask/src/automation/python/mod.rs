@@ -90,7 +90,8 @@ impl Python {
                 .args(args)
                 .current_dir(root)
                 .env("UV_PYTHON_INSTALL_DIR", root.join("temp/python-runtime"))
-                .env("UV_CACHE_DIR", root.join("temp/python-cache")),
+                .env("UV_CACHE_DIR", root.join("temp/python-cache"))
+                .env("PYTHONPATH", root.join("temp/python-types")),
             capture,
         )
         .context("Failed to run Python tooling")
@@ -170,6 +171,7 @@ impl Python {
 
     // Build one actual stable ABI binary with a compatible native interpreter.
     fn wheel(root: &Path, free_threaded: bool, feature: &str) -> Result<()> {
+        let platform = Platform::selected().context("Failed to select wheel target")?;
         let interpreter = Self::interpreter(root, free_threaded)?;
         let interpreter = interpreter
             .to_str()
@@ -184,6 +186,8 @@ impl Python {
             "maturin",
             "build",
             "--release",
+            "--target",
+            &platform.target,
             "--strip",
             "--manifest-path",
             "python/Cargo.toml",
@@ -202,7 +206,7 @@ impl Python {
         Ok(())
     }
 
-    // Require strict source typing and complete types in the installed distribution.
+    // Require strict source typing and complete types in the packaged distribution.
     fn typing(root: &Path) -> Result<()> {
         let interpreter = Self::interpreter(root, false)?;
         let interpreter = interpreter
@@ -225,9 +229,8 @@ impl Python {
         )
         .context("Failed strict Python type checking")?;
         let wheel = wheels::Wheels::regular(root).context("Failed to locate typed wheel")?;
-        let wheel = wheel
-            .to_str()
-            .context("Failed to encode typed wheel path")?;
+        wheels::Wheels::extract(&wheel, &root.join("temp/python-types"))
+            .context("Failed to prepare packaged typing")?;
         Self::run(
             root,
             &[
@@ -237,9 +240,9 @@ impl Python {
                 interpreter,
                 "--with",
                 Self::PYRIGHT,
-                "--with",
-                wheel,
                 "pyright",
+                "--pythonpath",
+                interpreter,
                 "--verifytypes",
                 "p4rust",
                 "--ignoreexternal",

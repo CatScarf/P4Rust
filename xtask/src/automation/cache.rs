@@ -13,6 +13,7 @@ impl Preparation {
     pub(super) fn dependencies(root: &Path, platform: &Platform) -> Result<()> {
         let marker = root.join("temp/ci-prepared-target");
         if marker.is_file()
+            && std::env::var_os("P4RUST_MANYLINUX").is_none()
             && fs::read_to_string(&marker).context("Failed to read CI preparation marker")?
                 == platform.target
         {

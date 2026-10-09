@@ -23,7 +23,7 @@ impl Dependencies {
             if std::env::var_os("P4RUST_MANYLINUX").is_some() {
                 if !Self::present("llvm-strip") {
                     Runner::run(
-                        Command::new("dnf").args(["install", "-y", "llvm", "nasm"]),
+                        Command::new("dnf").args(["install", "-y", "llvm", "nasm", "perl-core"]),
                         false,
                     )
                     .context("Failed to install missing manylinux archive tools")?;
