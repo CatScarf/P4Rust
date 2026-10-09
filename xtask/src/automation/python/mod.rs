@@ -83,18 +83,22 @@ impl Python {
         }
     }
 
+    // Configure isolated tool environments without changing the machine's Python installation.
+    fn command(root: &Path, args: &[&str]) -> Result<Command> {
+        let mut command = Command::new(Self::uv(root)?);
+        command
+            .args(args)
+            .current_dir(root)
+            .env("UV_PYTHON_INSTALL_DIR", root.join("temp/python-runtime"))
+            .env("UV_CACHE_DIR", root.join("temp/python-cache"))
+            .env("PYTHONPATH", root.join("temp/python-types"));
+        Ok(command)
+    }
+
     // Execute all Python tooling through the shared command logger.
     fn run(root: &Path, args: &[&str], capture: bool) -> Result<std::process::Output> {
-        Runner::run(
-            Command::new(Self::uv(root)?)
-                .args(args)
-                .current_dir(root)
-                .env("UV_PYTHON_INSTALL_DIR", root.join("temp/python-runtime"))
-                .env("UV_CACHE_DIR", root.join("temp/python-cache"))
-                .env("PYTHONPATH", root.join("temp/python-types")),
-            capture,
-        )
-        .context("Failed to run Python tooling")
+        Runner::run(&mut Self::command(root, args)?, capture)
+            .context("Failed to run Python tooling")
     }
 
     // Select native interpreters from manylinux or the managed uv installation.
@@ -202,7 +206,12 @@ impl Python {
         if std::env::var_os("P4RUST_MANYLINUX").is_some() {
             args.extend(["--manylinux", "2_28"]);
         }
-        Self::run(root, &args, false).context("Failed to compile Python wheel")?;
+        let mut command = Self::command(root, &args)?;
+        if let Some(config) = wheels::Wheels::configuration(root, &platform.target, free_threaded)?
+        {
+            command.env("PYO3_CONFIG_FILE", config);
+        }
+        Runner::run(&mut command, false).context("Failed to compile Python wheel")?;
         Ok(())
     }
 

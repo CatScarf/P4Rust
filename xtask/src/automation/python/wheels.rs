@@ -7,6 +7,27 @@ use std::{
 pub(crate) struct Wheels;
 
 impl Wheels {
+    // Describe Windows ARM stable ABIs independently of the emulated host Python.
+    pub(crate) fn configuration(
+        root: &Path,
+        target: &str,
+        free_threaded: bool,
+    ) -> Result<Option<PathBuf>> {
+        if target != "aarch64-pc-windows-msvc" {
+            return Ok(None);
+        }
+        let (version, abi) = if free_threaded {
+            ("3.15", "abi3t")
+        } else {
+            ("3.9", "abi3")
+        };
+        let path = root.join(format!("temp/python-tools/{abi}-arm64.txt"));
+        fs::write(&path, format!(
+            "implementation=CPython\nversion={version}\ntarget_abi=CPython-{abi}-{version}\nshared=true\npointer_width=64\next_suffix=.pyd\nbuild_flags=\nsuppress_build_script_link_lines=false\n"
+        )).context("Failed to write Windows ARM stable ABI configuration")?;
+        Ok(Some(path))
+    }
+
     // Inspect packaged typing without executing a foreign-architecture extension.
     pub(crate) fn extract(path: &Path, destination: &Path) -> Result<()> {
         let file = fs::File::open(path).context("Failed to open typed Python wheel")?;
