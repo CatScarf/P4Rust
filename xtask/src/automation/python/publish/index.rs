@@ -13,26 +13,21 @@ pub(super) struct Published {
 pub(super) struct Index;
 
 impl Index {
-    // Read the immutable files already published for this package version.
+    // Read project inventory without caching a not-yet-published release's 404 response.
     pub(super) fn files(root: &Path, version: &str) -> Result<BTreeMap<String, Published>> {
-        let freshness = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .context("Failed to timestamp PyPI visibility request")?
-            .as_nanos();
-        let (status, bytes) = Http::get(
-            root,
-            &format!("https://pypi.org/pypi/p4rust/{version}/json?p4rust-check={freshness}"),
-            None,
-        )
-        .context("Failed to query PyPI version")?;
+        let (status, bytes) = Http::get(root, "https://pypi.org/pypi/p4rust/json", None)
+            .context("Failed to query PyPI version")?;
         if status == 404 {
             return Ok(BTreeMap::new());
         }
         ensure!(status == 200, "Failed to query PyPI: HTTP {status}");
         let value: serde_json::Value =
             serde_json::from_slice(&bytes).context("Failed to parse PyPI response")?;
-        Self::description(root, &value).context("Failed to confirm PyPI project description")?;
-        let files = value["urls"]
+        let release = &value["releases"][version];
+        if release.is_null() {
+            return Ok(BTreeMap::new());
+        }
+        let files = release
             .as_array()
             .context("Failed to read published wheel list")?;
         let mut result = BTreeMap::new();
@@ -62,7 +57,19 @@ impl Index {
     }
 
     // Confirm PyPI rendered metadata comes from the maintained Markdown README.
-    fn description(root: &Path, value: &serde_json::Value) -> Result<()> {
+    pub(super) fn description(root: &Path, version: &str) -> Result<()> {
+        let (status, bytes) = Http::get(
+            root,
+            &format!("https://pypi.org/pypi/p4rust/{version}/json"),
+            None,
+        )
+        .context("Failed to fetch published PyPI description")?;
+        ensure!(
+            status == 200,
+            "Failed to query published PyPI description: HTTP {status}"
+        );
+        let value: serde_json::Value =
+            serde_json::from_slice(&bytes).context("Failed to parse published PyPI metadata")?;
         let body = value["info"]["description"]
             .as_str()
             .context("Failed to read PyPI project description")?

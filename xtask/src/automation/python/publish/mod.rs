@@ -46,6 +46,7 @@ impl Publisher {
             Runner::run(&mut command, false).context("Failed to publish Python wheels")?;
         }
         Self::verify(root, &version, &paths).context("Failed to confirm PyPI publication")?;
+        Index::description(root, &version).context("Failed to confirm PyPI project description")?;
         Self::bundle(&bundle, &paths).context("Failed to bundle canonical PyPI wheels")?;
         Runner::run(
             Command::new("gh")
