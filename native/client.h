@@ -41,6 +41,13 @@ typedef struct p4rust_options_v1 {
 // Return the supported ABI version without initializing the SDK.
 uint32_t p4rust_abi_version(void);
 
+// Reuse a caller-thread-owned connection while borrowing callbacks only during execution.
+int32_t p4rust_session_execute_v6(void**, const p4rust_options_v1*, const char*, int32_t,
+    const char* const*, p4rust_callback_v1, void*, p4rust_alive_v1, void*,
+    p4rust_reconcile_v3, void*, uint32_t);
+// Close a session on its creating thread after all invocations return.
+void p4rust_session_close_v6(void*);
+
 // Run synchronously; strings are NUL-terminated and callback bytes are borrowed.
 int32_t p4rust_execute_v1(const p4rust_options_v1*, const char*, int32_t,
     const char* const*, p4rust_callback_v1, void*);

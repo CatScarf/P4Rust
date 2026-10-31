@@ -99,6 +99,39 @@ class Client:
     def command(self, name: str) -> Command:
         return Command(self._native.command(name))
 
+    # Create an independently closable connection for sequential commands.
+    def session(self) -> Session:
+        try:
+            return Session(self._native.session())
+        except _native.CommandError as error:
+            raise P4Error._from_native(error) from error
+
+
+class Session:
+    # Retain the dedicated SDK connection owner.
+    def __init__(self, native: _native._Session) -> None:
+        self._native = native
+
+    # Create a command that retains this session until stream cleanup completes.
+    def command(self, name: str) -> Command:
+        return Command(self._native.command(name))
+
+    # Close all session clones and cancel an active command without blocking.
+    def close(self) -> None:
+        try:
+            self._native.close()
+        except _native.CommandError as error:
+            raise P4Error._from_native(error) from error
+
+    # Keep the persistent connection available within an explicit scope.
+    def __enter__(self) -> Session:
+        return self
+
+    # Request native owner-thread cleanup on every scope exit.
+    def __exit__(self, exc_type: Optional[type[BaseException]], exc_value: Optional[BaseException],
+                 traceback: Optional[TracebackType]) -> None:
+        self.close()
+
 
 class Command:
     # Retain an immutable native command builder.

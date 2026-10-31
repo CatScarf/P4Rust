@@ -1,12 +1,26 @@
 use crate::control::Control;
 use crate::error::{Result, ResultExt, ensure};
 use crate::ffi;
-use crate::{Config, capture::Capture};
+use crate::{Command, capture::Capture};
 use std::ffi::{CString, c_char, c_void};
 
-pub(crate) struct Native;
+pub(crate) struct Native {
+    session: Option<*mut c_void>,
+}
 
 impl Native {
+    // Execute one command through the existing isolated native ABI.
+    pub(crate) fn isolated() -> Self {
+        Self { session: None }
+    }
+
+    // Allocate persistent native state lazily on its owning command thread.
+    pub(crate) fn reusable() -> Self {
+        Self {
+            session: Some(std::ptr::null_mut()),
+        }
+    }
+
     // Encode NUL-terminated strings while preserving contextual validation errors.
     fn string(value: &str) -> Result<CString> {
         CString::new(value).context("Failed to encode native argument: embedded NUL")
@@ -14,14 +28,14 @@ impl Native {
 
     // Invoke the native ABI while delivering events directly to the bounded stream.
     pub(crate) fn execute(
-        config: &Config,
-        command: &str,
-        args: &[&str],
-        input: &str,
+        &mut self,
+        command: &Command,
         control: &Control,
         capture: &Capture,
-        reconcile: Option<&std::sync::Arc<dyn crate::ReconcileHandler>>,
     ) -> Result<crate::CommandStatus> {
+        let config = &command.config;
+        let args: Vec<&str> = command.arguments.iter().map(String::as_str).collect();
+        let reconcile = command.reconcile.as_ref();
         #[cfg(feature = "reconcile-trace")]
         let _trace_attachment =
             crate::ReconcileTrace::attach(reconcile.and_then(|handler| handler.trace()))
@@ -38,21 +52,21 @@ impl Native {
             &config.client,
             &config.cwd,
             &config.charset,
-            input,
+            &command.form,
         ]
         .into_iter()
         .map(Self::string)
         .collect::<Result<_>>()
         .context("Failed to encode native connection settings")?;
         let options = Self::options(&values);
-        let command = Self::string(command).context("Failed to encode native command")?;
+        let command = Self::string(&command.name).context("Failed to encode native command")?;
         let runtime = reconcile
             .map(|handler| {
                 crate::reconcile::runtime::Runtime::new(
                     std::sync::Arc::clone(handler),
                     control.clone(),
                     config,
-                    args,
+                    &args,
                 )
             })
             .transpose()
@@ -60,10 +74,10 @@ impl Native {
         let moves = reconcile
             .map(|handler| handler.workers(crate::ReconcileKind::Move))
             .unwrap_or(1) as u32;
-        let result = Self::invoke(
+        let result = self.invoke(
             &options,
             &command,
-            args,
+            &args,
             control,
             capture,
             runtime.as_ref().map(|runtime| (runtime, moves)),
@@ -95,6 +109,7 @@ impl Native {
 
     // Keep every borrowed buffer and callback context alive until all SDK workers finish.
     fn invoke(
+        &mut self,
         options: &ffi::Options,
         command: &CString,
         args: &[&str],
@@ -112,7 +127,30 @@ impl Native {
         // The owned worker outlives the synchronous native call and every parallel callback.
         reconcile_span!("native_session");
         let status = unsafe {
-            if let Some((runtime, moves)) = reconcile {
+            if let Some(session) = &mut self.session {
+                let (callback, scheduler, moves) = match reconcile {
+                    Some((runtime, moves)) => (
+                        Some(crate::reconcile::runtime::Runtime::callback as ffi::Reconcile),
+                        std::ptr::from_ref(runtime).cast_mut().cast::<c_void>(),
+                        moves,
+                    ),
+                    None => (None, std::ptr::null_mut(), 1),
+                };
+                ffi::p4rust_session_execute_v6(
+                    session,
+                    options,
+                    command.as_ptr(),
+                    count,
+                    pointers.as_ptr(),
+                    Capture::callback,
+                    std::ptr::from_ref(capture).cast_mut().cast::<c_void>(),
+                    Some(Control::alive as ffi::Alive),
+                    std::ptr::from_ref(control).cast_mut().cast::<c_void>(),
+                    callback,
+                    scheduler,
+                    moves,
+                )
+            } else if let Some((runtime, moves)) = reconcile {
                 ffi::p4rust_execute_reconcile_v3(
                     options,
                     command.as_ptr(),
@@ -142,5 +180,15 @@ impl Native {
         capture
             .finish(status)
             .context("Failed to collect native P4 output")
+    }
+}
+
+impl Drop for Native {
+    // Finalize persistent SDK state on the thread that created it.
+    fn drop(&mut self) {
+        if let Some(session) = self.session.take() {
+            // The handle never leaves its dedicated SDK owner thread.
+            unsafe { ffi::p4rust_session_close_v6(session) };
+        }
     }
 }

@@ -18,6 +18,7 @@ pub struct CommandStream {
     control: Control,
     worker: Option<thread::JoinHandle<()>>,
     finished: bool,
+    _session: Option<crate::Session>,
 }
 
 impl CommandStream {
@@ -35,29 +36,8 @@ impl CommandStream {
             .name("p4rust-command".into())
             .spawn(move || {
                 let capture = Capture::new(worker_queue, worker_control.clone());
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let args: Vec<&str> = command.arguments.iter().map(String::as_str).collect();
-                    Native::execute(
-                        &command.config,
-                        &command.name,
-                        &args,
-                        &command.form,
-                        &worker_control,
-                        &capture,
-                        command.reconcile.as_ref(),
-                    )
-                    .with_context(|| format!("Failed to execute P4 command '{}'", command.name))
-                }));
-                let result = match result {
-                    Ok(result) => result,
-                    Err(_) => Err(crate::Error::new(
-                        "Failed to execute P4 command: worker panicked",
-                    )),
-                };
-                let result = match worker_control.error() {
-                    Some(error) => Err(error),
-                    None => result,
-                };
+                let result =
+                    Self::execute(&command, &worker_control, &capture, &mut Native::isolated());
                 capture.complete(result);
             })
             .context("Failed to spawn P4 stream worker")?;
@@ -66,7 +46,48 @@ impl CommandStream {
             control,
             worker: Some(worker),
             finished: false,
+            _session: None,
         })
+    }
+
+    // Create a bounded stream whose native work belongs to a persistent owner.
+    pub(crate) fn session(control: Control, session: crate::Session) -> (Self, Capture) {
+        let queue = Arc::new(Queue::new());
+        let capture = Capture::new(Arc::clone(&queue), control.clone());
+        (
+            Self {
+                queue,
+                control,
+                worker: None,
+                finished: false,
+                _session: Some(session),
+            },
+            capture,
+        )
+    }
+
+    // Contain native panics and preserve per-command cancellation on either execution path.
+    pub(crate) fn execute(
+        command: &Command,
+        control: &Control,
+        capture: &Capture,
+        native: &mut Native,
+    ) -> Result<CommandStatus> {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            native
+                .execute(command, control, capture)
+                .with_context(|| format!("Failed to execute P4 command '{}'", command.name))
+        }));
+        let result = match result {
+            Ok(result) => result,
+            Err(_) => Err(crate::Error::new(
+                "Failed to execute P4 command: worker panicked",
+            )),
+        };
+        match control.error() {
+            Some(error) => Err(error),
+            None => result,
+        }
     }
 
     /// Collect remaining events into a complete output, propagating command failures.

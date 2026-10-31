@@ -128,6 +128,8 @@ impl Prune {
                 "/EXPORT:p4rust_execute_v1",
                 "/EXPORT:p4rust_execute_controlled_v1",
                 "/EXPORT:p4rust_execute_reconcile_v3",
+                "/EXPORT:p4rust_session_execute_v6",
+                "/EXPORT:p4rust_session_close_v6",
                 "/EXPORT:p4rust_reconcile_execute_v3",
                 "/EXPORT:p4rust_reconcile_result_v3",
                 "/EXPORT:p4rust_reconcile_commit_v3",
@@ -215,7 +217,7 @@ impl Prune {
         platform: &Platform,
     ) -> Result<String> {
         let source = staging.join("dependency-probe.cc");
-        fs::write(&source, "#include <client.h>\n// Retain every public ABI symbol for archive dependency analysis.\nint main() { auto volatile version = &p4rust_abi_version; auto volatile execute = &p4rust_execute_v1; auto volatile controlled = &p4rust_execute_controlled_v1; (void)version; (void)execute; (void)controlled; return 0; }\n")
+        fs::write(&source, "#include <client.h>\n// Retain every public ABI symbol for archive dependency analysis.\nint main() { auto volatile version = &p4rust_abi_version; auto volatile execute = &p4rust_execute_v1; auto volatile controlled = &p4rust_execute_controlled_v1; auto volatile session = &p4rust_session_execute_v6; auto volatile close = &p4rust_session_close_v6; (void)version; (void)execute; (void)controlled; (void)session; (void)close; return 0; }\n")
             .context("Failed to write ABI dependency probe")?;
         let map = staging.join("dependency-probe.map");
         let executable = staging.join("dependency-probe");

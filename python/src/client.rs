@@ -48,15 +48,35 @@ impl Client {
 
     // Create an immutable command builder with owned connection settings.
     fn command(&self, name: String) -> Command {
-        Command {
+        Command::new(self.0.clone(), name, None)
+    }
+
+    // Create a persistent SDK connection owner without borrowing this Python client.
+    fn session(&self) -> PyResult<Session> {
+        let client = p4rust::Client::new(self.0.clone()).map_err(Conversion::error)?;
+        Ok(Session {
+            inner: client.session().map_err(Conversion::error)?,
             config: self.0.clone(),
-            name,
-            arguments: Vec::new(),
-            form: String::new(),
-            timeout: None,
-            token: None,
-            reconcile: None,
-        }
+        })
+    }
+}
+
+#[pyclass(name = "_Session", frozen)]
+pub(crate) struct Session {
+    inner: p4rust::Session,
+    config: p4rust::Config,
+}
+
+#[pymethods]
+impl Session {
+    // Retain the connection owner in each immutable command builder.
+    fn command(&self, name: String) -> Command {
+        Command::new(self.config.clone(), name, Some(self.inner.clone()))
+    }
+
+    // Cancel active work and request finalization on the native owner thread.
+    fn close(&self) -> PyResult<()> {
+        self.inner.close().map_err(Conversion::error)
     }
 }
 
@@ -70,6 +90,23 @@ pub(crate) struct Command {
     timeout: Option<Duration>,
     token: Option<CancellationToken>,
     reconcile: Option<p4rust::FastReconcile>,
+    session: Option<p4rust::Session>,
+}
+
+impl Command {
+    // Build owned command state for an isolated client or persistent session.
+    fn new(config: p4rust::Config, name: String, session: Option<p4rust::Session>) -> Self {
+        Self {
+            config,
+            name,
+            session,
+            arguments: Vec::new(),
+            form: String::new(),
+            timeout: None,
+            token: None,
+            reconcile: None,
+        }
+    }
 }
 
 #[pymethods]
@@ -133,10 +170,11 @@ impl Command {
     // Start the Rust worker while retaining no borrowed Python configuration.
     fn run(&self, py: Python<'_>) -> PyResult<Stream> {
         let client = p4rust::Client::new(self.config.clone()).map_err(Conversion::error)?;
-        let mut command = client
-            .command(&self.name)
-            .args(self.arguments.clone())
-            .input(&self.form);
+        let command = match &self.session {
+            Some(session) => session.command(&self.name),
+            None => client.command(&self.name),
+        };
+        let mut command = command.args(self.arguments.clone()).input(&self.form);
         if let Some(timeout) = self.timeout {
             command = command.timeout(timeout);
         }

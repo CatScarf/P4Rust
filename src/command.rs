@@ -13,6 +13,7 @@ pub struct Command {
     timeout: Option<Duration>,
     cancellation: Option<CancellationToken>,
     pub(crate) reconcile: Option<Arc<dyn crate::ReconcileHandler>>,
+    pub(crate) session: Option<crate::Session>,
 }
 
 impl Command {
@@ -26,6 +27,7 @@ impl Command {
             timeout: None,
             cancellation: None,
             reconcile: None,
+            session: None,
         }
     }
 
@@ -60,12 +62,18 @@ impl Command {
     }
 
     /// Start background execution and return a bounded stream of command events.
-    pub fn run(self) -> Result<CommandStream> {
+    pub fn run(mut self) -> Result<CommandStream> {
         self.validate()
             .context("Failed to validate P4 command builder")?;
         let control = Control::new(self.timeout, self.cancellation.clone())
             .context("Failed to prepare stream control")?;
-        CommandStream::start(self, control).context("Failed to start P4 command stream")
+        if let Some(session) = self.session.take() {
+            session
+                .start(self, control)
+                .context("Failed to start P4 session command")
+        } else {
+            CommandStream::start(self, control).context("Failed to start P4 command stream")
+        }
     }
 
     // Validate owned command data before starting the native worker.

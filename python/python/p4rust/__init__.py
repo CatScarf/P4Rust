@@ -8,6 +8,7 @@ from ._client import (
     Config as Config,
     FastReconcile as FastReconcile,
     P4Error as P4Error,
+    Session as Session,
 )
 from ._events import (
     Binary as Binary, CommandStatus as CommandStatus, Completed as Completed,

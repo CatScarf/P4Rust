@@ -16,6 +16,7 @@ mod ffi;
 mod native;
 mod output;
 mod reconcile;
+mod session;
 mod stream;
 
 pub use command::Command;
@@ -28,6 +29,7 @@ pub use reconcile::ReconcileStatistics;
 pub use reconcile::trace::ReconcileTrace;
 pub use reconcile::{FastReconcile, ReconcileHandler, ReconcileKind};
 pub use reconcile::{ReconcileReply, ReconcileRequest, ReconcileStatus};
+pub use session::Session;
 pub use stream::{CommandStream, Event, Progress, Record};
 pub use stream::{Message, MessageId, ProgressCallback};
 pub use stream::{ProgressKind, ProgressUnit};
@@ -97,5 +99,10 @@ impl Client {
     /// Configure a Perforce command using one execution path for queries and transfers.
     pub fn command(&self, name: impl Into<String>) -> Command {
         Command::new(&self.config, name)
+    }
+
+    /// Create a thread-owned connection for sequential commands.
+    pub fn session(&self) -> Result<Session> {
+        Session::new(self.config.clone()).context("Failed to create persistent P4 session")
     }
 }

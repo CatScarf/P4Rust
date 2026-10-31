@@ -317,6 +317,9 @@ public:
     }
 };
 
+}
+#include "session.h"
+namespace p4rust {
 // Execute a command while keeping argument storage alive through Run.
 int32_t execute(const p4rust_options_v1& options, const char* command, int32_t argc,
              const char* const* args, p4rust_callback_v1 callback, void* context,
@@ -324,41 +327,15 @@ int32_t execute(const p4rust_options_v1& options, const char* command, int32_t a
              void* scheduler, uint32_t moves) {
     Runtime::Ready();
     ThreadScope thread;
-    Interrupt interrupt;
-    interrupt.callback = alive;
-    interrupt.context = control;
-    interrupt.Check();
     Session session;
     session.Configure(options);
-    User user;
-    user.callback = callback;
-    user.context = context;
-    user.input = options.input;
-    user.interrupt = alive ? &interrupt : nullptr;
-    ReconcileScope scheduling(user, reconcile, scheduler, moves);
-    session.Open(user);
-    // The SDK requires SetBreak after a successful Init.
-    if (alive) session.client.SetBreak(&interrupt);
-    interrupt.Check();
-    std::vector<std::string> storage;
-    std::vector<char*> pointers;
-    storage.reserve(static_cast<size_t>(argc));
-    for (int32_t index = 0; index < argc; ++index) storage.emplace_back(args[index]);
-    for (auto& arg : storage) pointers.push_back(arg.data());
-    session.client.SetArgv(static_cast<int>(pointers.size()), pointers.data());
-    interrupt.Check();
-    session.client.Run(command, &user);
-    if (reconcile) scheduling.Drain();
-    scheduling.Close();
-    const int32_t errors = session.client.GetErrors();
-    user.Emit(P4RUST_STATUS, reinterpret_cast<const char*>(&errors), sizeof(errors));
-    session.Close(user);
-    return errors != 0 || user.command_failed.load() || interrupt.failed.load() ? 1 : 0;
+    return Invocation{options, command, argc, args, callback, context, alive, control,
+        reconcile, scheduler, moves}.Run(session, true);
 }
 }
 
 // Return the ABI contract implemented by this precompiled bridge.
-extern "C" uint32_t p4rust_abi_version(void) { return 5; }
+extern "C" uint32_t p4rust_abi_version(void) { return 6; }
 
 // Contain all C++ exceptions before returning across the C ABI boundary.
 extern "C" int32_t p4rust_execute_v1(const p4rust_options_v1* options,
@@ -383,7 +360,7 @@ extern "C" int32_t p4rust_execute_reconcile_v3(const p4rust_options_v1* options,
     p4rust_reconcile_v3 reconcile, void* scheduler, uint32_t moves) {
     if (!callback) return 1;
     try {
-        if (!options || options->abi_version != 5 || !command || argc < 0 ||
+        if (!options || options->abi_version != 6 || !command || argc < 0 ||
             (argc && !argv) || !options->port || !options->user || !options->client ||
             !options->cwd || !options->charset || !options->input || (alive && !control))
             throw std::runtime_error("Failed to validate bridge arguments");
@@ -403,6 +380,38 @@ extern "C" int32_t p4rust_execute_reconcile_v3(const p4rust_options_v1* options,
                  std::strlen(message), nullptr, 0);
     }
     return 1;
+}
+
+// Reuse a lazy session whose handle and every invocation remain on one caller thread.
+extern "C" int32_t p4rust_session_execute_v6(void** session, const p4rust_options_v1* options,
+    const char* command, int32_t argc, const char* const* argv,
+    p4rust_callback_v1 callback, void* context, p4rust_alive_v1 alive, void* control,
+    p4rust_reconcile_v3 reconcile, void* scheduler, uint32_t moves) {
+    if (!callback) return 1;
+    try {
+        if (!session || !options) throw std::runtime_error("Failed to borrow P4 session arguments");
+        const p4rust::Invocation request{*options, command, argc, argv, callback, context,
+            alive, control, reconcile, scheduler, moves};
+        request.Validate();
+        if (!*session) {
+            p4rust::Runtime::Ready();
+            *session = new p4rust::Persistent(*options);
+        }
+        return static_cast<p4rust::Persistent*>(*session)->Run(request);
+    } catch (const std::exception& error) {
+        callback(context, P4RUST_ERROR, reinterpret_cast<const uint8_t*>(error.what()),
+            std::strlen(error.what()), nullptr, 0);
+    } catch (...) {
+        const char* error = "Failed to execute P4 session: unknown native exception";
+        callback(context, P4RUST_ERROR, reinterpret_cast<const uint8_t*>(error),
+            std::strlen(error), nullptr, 0);
+    }
+    return 1;
+}
+
+// Finalize idle connection state and SDK thread initialization on their owner thread.
+extern "C" void p4rust_session_close_v6(void* session) {
+    delete static_cast<p4rust::Persistent*>(session);
 }
 
 #include "reconcile/engine.cc"

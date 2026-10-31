@@ -99,6 +99,22 @@ with events:
 
 Use `.input(form)`, `.cancellation(token)`, or `.reconcile_handler(FastReconcile())` before `.run()`. `collect_output()` collects the remaining stream; `close()` cancels a command.
 
+### Reusing a connection
+
+`client.command()` opens an independent connection for each command. Use a session for sequential queries on one dedicated SDK thread:
+
+```python
+with client.session() as session:
+    with session.command("info").run() as events:
+        output = events.collect_output()
+    with session.command("files").args(["D:/workspace/..."]).run() as events:
+        output = events.collect_output()
+```
+
+Rust callers use `let session = client.session()?`, then `session.command(...)` and `session.close()?`. A session opens its connection lazily and retains it between commands. A busy or closed session rejects new work immediately. Use independent commands or separate sessions for concurrency.
+
+Stream cancellation, deadlines, output backpressure, and reconcile handlers remain command-local. A cancelled, failed, or disconnected native command discards its connection; a later command reconnects without replaying the failed operation. Closing a session cancels active work and requests cleanup on the owner thread without blocking the caller. Command builders and streams retain their session, and the last owner also requests cleanup when dropped.
+
 ## Maintainers
 
 [xtask](xtask/README.md) builds native resources and packages all six targets. GitHub Actions runs builds, Clippy, and Python typing checks, publishes changed crates.io versions and Python wheels to PyPI, and releases separate Rust and Python ZIPs.
