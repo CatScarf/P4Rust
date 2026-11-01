@@ -72,6 +72,12 @@ impl Release {
             package.join("OPENSSL-LICENSE.txt"),
         )
         .context("Failed to include OpenSSL license")?;
+        if platform.target.ends_with("linux-gnu") {
+            for name in ["GCC-GPL3-LICENSE.txt", "GCC-RUNTIME-LICENSE.txt"] {
+                fs::copy(root.join("native").join(name), package.join(name))
+                    .with_context(|| format!("Failed to include GCC notice {name}"))?;
+            }
+        }
         Ok(())
     }
 }

@@ -260,7 +260,14 @@ impl Prune {
                 .arg("-Wl,--start-group")
                 .args(libraries)
                 .arg("-Wl,--end-group")
-                .args(["-pthread", "-ldl", "-lresolv", "-lrt", "-lm"]);
+                .args(["-pthread", "-ldl", "-lresolv", "-lrt", "-lm"])
+                .args([
+                    "-nodefaultlibs",
+                    "-l:libstdc++.so.6",
+                    "-lgcc_s",
+                    "-lgcc",
+                    "-lc",
+                ]);
         }
         let output =
             Runner::run(&mut command, true).context("Failed to link ABI dependency probe")?;

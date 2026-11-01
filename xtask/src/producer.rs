@@ -94,7 +94,47 @@ impl Producer {
             command
         };
         Runner::run(command.arg(&object), false).context("Failed to archive C ABI bridge")?;
+        self.runtime(&archive)
+            .context("Failed to include C++ runtime compatibility")?;
         Ok(archive)
+    }
+
+    // Bundle manylinux's nonshared GCC helpers before the common dependency pruning pass.
+    fn runtime(&self, archive: &std::path::Path) -> Result<()> {
+        if !self.platform.target.ends_with("linux-gnu")
+            || std::env::var_os("P4RUST_MANYLINUX").is_none()
+        {
+            return Ok(());
+        }
+        let compiler = self
+            .platform
+            .compiler()
+            .try_get_compiler()
+            .context("Failed to locate C++ runtime compiler")?;
+        let output = Runner::run(
+            compiler
+                .to_command()
+                .arg("-print-file-name=libstdc++_nonshared.a"),
+            true,
+        )
+        .context("Failed to locate nonshared C++ runtime")?;
+        let name = String::from_utf8(output.stdout)
+            .context("Failed to decode nonshared C++ runtime path")?;
+        let runtime = PathBuf::from(name.trim());
+        ensure!(
+            runtime.is_file(),
+            "Failed to find nonshared C++ runtime: {}",
+            runtime.display()
+        );
+        Runner::run(
+            std::process::Command::new(Platform::utility("P4RUST_AR", "llvm-ar"))
+                .arg("qLs")
+                .arg(archive)
+                .arg(runtime),
+            false,
+        )
+        .context("Failed to merge nonshared C++ runtime members")?;
+        Ok(())
     }
 
     // Build OpenSSL on the producer or reuse explicitly supplied static libraries.
