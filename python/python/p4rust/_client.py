@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, replace, field
 from types import TracebackType
 from typing import Optional
 
@@ -18,6 +18,18 @@ class Config:
     client: str
     cwd: str = ""
     charset: str = ""
+    password: str = field(default="", repr=False)
+    ignore_file: str = ""
+    tagged: bool = True
+
+    # Resolve SDK environment, registry and P4CONFIG defaults without connecting.
+    @classmethod
+    def discover(cls, cwd: str = "") -> Config:
+        try:
+            port, user, client, directory, charset, ignore = _native._Client.discover(cwd)
+            return cls(port, user, client, directory, charset, ignore_file=ignore)
+        except _native.CommandError as error:
+            raise P4Error._from_native(error) from error
 
 
 class P4Error(RuntimeError):
@@ -91,13 +103,21 @@ class Client:
     # Create a client with explicit connection settings.
     def __init__(self, config: Config) -> None:
         try:
-            self._native = _native._Client(config.port, config.user, config.client, config.cwd, config.charset)
+            self._native = _native._Client(config.port, config.user, config.client, config.cwd, config.charset,
+                                          config.password, config.ignore_file, config.tagged)
         except _native.CommandError as error:
             raise P4Error._from_native(error) from error
 
     # Configure a command without opening a network connection yet.
     def command(self, name: str) -> Command:
         return Command(self._native.command(name))
+
+    # Check per-instance SDK ignore rules without connecting to a server.
+    def is_ignored(self, path: str) -> bool:
+        try:
+            return self._native.is_ignored(path)
+        except _native.CommandError as error:
+            raise P4Error._from_native(error) from error
 
     # Create an independently closable connection for sequential commands.
     def session(self) -> Session:

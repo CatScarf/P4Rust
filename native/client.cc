@@ -281,13 +281,15 @@ public:
 
     // Apply explicit connection settings before opening the session.
     void Configure(const p4rust_options_v1& options) {
-        client.SetPort(options.port);
-        client.SetUser(options.user);
-        client.SetClient(options.client);
         if (options.cwd[0]) client.SetCwd(options.cwd);
+        if (options.port[0]) client.SetPort(options.port);
+        if (options.user[0]) client.SetUser(options.user);
+        if (options.client[0]) client.SetClient(options.client);
         if (options.charset[0]) client.SetCharset(options.charset);
+        if (options.password[0]) client.SetPassword(options.password);
+        if (options.ignore_file[0]) client.SetIgnoreFile(options.ignore_file);
         client.SetProg("P4Rust");
-        client.SetProtocol("tag", "");
+        if (options.flags & 1) client.SetProtocol("tag", "");
     }
 
     // Translate connection and finalization failures to C++ exceptions.
@@ -335,7 +337,7 @@ int32_t execute(const p4rust_options_v1& options, const char* command, int32_t a
 }
 
 // Return the ABI contract implemented by this precompiled bridge.
-extern "C" uint32_t p4rust_abi_version(void) { return 6; }
+extern "C" uint32_t p4rust_abi_version(void) { return 7; }
 
 // Contain all C++ exceptions before returning across the C ABI boundary.
 extern "C" int32_t p4rust_execute_v1(const p4rust_options_v1* options,
@@ -360,9 +362,10 @@ extern "C" int32_t p4rust_execute_reconcile_v3(const p4rust_options_v1* options,
     p4rust_reconcile_v3 reconcile, void* scheduler, uint32_t moves) {
     if (!callback) return 1;
     try {
-        if (!options || options->abi_version != 6 || !command || argc < 0 ||
+        if (!options || options->abi_version != 7 || !command || argc < 0 ||
             (argc && !argv) || !options->port || !options->user || !options->client ||
-            !options->cwd || !options->charset || !options->input || (alive && !control))
+            !options->cwd || !options->charset || !options->input || !options->password ||
+            !options->ignore_file || (options->flags & ~7u) || (alive && !control))
             throw std::runtime_error("Failed to validate bridge arguments");
         if (reconcile && (!scheduler || moves < 1 || moves > 32 ||
             (std::strcmp(command, "reconcile") && std::strcmp(command, "rec") && std::strcmp(command, "status"))))
@@ -383,7 +386,7 @@ extern "C" int32_t p4rust_execute_reconcile_v3(const p4rust_options_v1* options,
 }
 
 // Reuse a lazy session whose handle and every invocation remain on one caller thread.
-extern "C" int32_t p4rust_session_execute_v6(void** session, const p4rust_options_v1* options,
+extern "C" int32_t p4rust_session_execute_v7(void** session, const p4rust_options_v1* options,
     const char* command, int32_t argc, const char* const* argv,
     p4rust_callback_v1 callback, void* context, p4rust_alive_v1 alive, void* control,
     p4rust_reconcile_v3 reconcile, void* scheduler, uint32_t moves) {
@@ -410,7 +413,7 @@ extern "C" int32_t p4rust_session_execute_v6(void** session, const p4rust_option
 }
 
 // Finalize idle connection state and SDK thread initialization on their owner thread.
-extern "C" void p4rust_session_close_v6(void* session) {
+extern "C" void p4rust_session_close_v7(void* session) {
     delete static_cast<p4rust::Persistent*>(session);
 }
 

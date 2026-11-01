@@ -53,12 +53,15 @@ impl Native {
             &config.cwd,
             &config.charset,
             &command.form,
+            &config.password,
+            &config.ignore_file,
         ]
         .into_iter()
         .map(Self::string)
         .collect::<Result<_>>()
         .context("Failed to encode native connection settings")?;
-        let options = Self::options(&values);
+        let flags = u32::from(config.tagged) | (command.local_operation << 1);
+        let options = Self::options(&values, flags);
         let command = Self::string(&command.name).context("Failed to encode native command")?;
         let runtime = reconcile
             .map(|handler| {
@@ -94,8 +97,8 @@ impl Native {
         result.context("Failed to invoke native command")
     }
 
-    // Build borrowed options from the six encoded connection fields.
-    fn options(values: &[CString]) -> ffi::Options {
+    // Build borrowed connection settings and command-local operation flags.
+    fn options(values: &[CString], flags: u32) -> ffi::Options {
         ffi::Options {
             abi_version: ffi::ABI_VERSION,
             port: values[0].as_ptr(),
@@ -104,6 +107,9 @@ impl Native {
             cwd: values[3].as_ptr(),
             charset: values[4].as_ptr(),
             input: values[5].as_ptr(),
+            password: values[6].as_ptr(),
+            ignore_file: values[7].as_ptr(),
+            flags,
         }
     }
 
@@ -136,7 +142,7 @@ impl Native {
                     ),
                     None => (None, std::ptr::null_mut(), 1),
                 };
-                ffi::p4rust_session_execute_v6(
+                ffi::p4rust_session_execute_v7(
                     session,
                     options,
                     command.as_ptr(),
@@ -188,7 +194,7 @@ impl Drop for Native {
     fn drop(&mut self) {
         if let Some(session) = self.session.take() {
             // The handle never leaves its dedicated SDK owner thread.
-            unsafe { ffi::p4rust_session_close_v6(session) };
+            unsafe { ffi::p4rust_session_close_v7(session) };
         }
     }
 }

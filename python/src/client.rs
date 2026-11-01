@@ -1,4 +1,5 @@
 use crate::{conversion::Conversion, stream::Stream};
+use p4rust::ResultExt;
 use pyo3::{exceptions::PyValueError, prelude::*};
 use std::time::Duration;
 
@@ -32,18 +33,55 @@ pub(crate) struct Client(p4rust::Config);
 impl Client {
     // Validate explicit connection settings before creating a Python client.
     #[new]
+    #[pyo3(signature = (port, user, client, cwd, charset, password=String::new(), ignore_file=String::new(), tagged=true))]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         port: String,
         user: String,
         client: String,
         cwd: String,
         charset: String,
+        password: String,
+        ignore_file: String,
+        tagged: bool,
     ) -> PyResult<Self> {
         let mut config = p4rust::Config::new(port, user, client);
         config.cwd = cwd;
         config.charset = charset;
+        config.password = password;
+        config.ignore_file = ignore_file;
+        config.tagged = tagged;
         p4rust::Client::new(config.clone()).map_err(Conversion::error)?;
         Ok(Self(config))
+    }
+
+    // Resolve non-secret SDK settings without opening a server connection.
+    #[staticmethod]
+    fn discover(
+        py: Python<'_>,
+        cwd: String,
+    ) -> PyResult<(String, String, String, String, String, String)> {
+        let config = py
+            .detach(|| p4rust::Config::discover(cwd))
+            .map_err(Conversion::error)?;
+        Ok((
+            config.port,
+            config.user,
+            config.client,
+            config.cwd,
+            config.charset,
+            config.ignore_file,
+        ))
+    }
+
+    // Apply this client's SDK ignore policy without server traffic.
+    fn is_ignored(&self, py: Python<'_>, path: String) -> PyResult<bool> {
+        py.detach(|| {
+            let client = p4rust::Client::new(self.0.clone())
+                .context("Failed to construct local SDK ignore client")?;
+            client.is_ignored(path)
+        })
+        .map_err(Conversion::error)
     }
 
     // Create an immutable command builder with owned connection settings.

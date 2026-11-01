@@ -228,7 +228,7 @@ dependencies = [
 
 [[package]]
 name = "p4rust"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "crossbeam-channel",
  "p4rust-resources-aarch64-apple-darwin",
@@ -242,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "p4rust-python"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "p4rust",
  "pyo3",
@@ -250,27 +250,27 @@ dependencies = [
 
 [[package]]
 name = "p4rust-resources-aarch64-apple-darwin"
-version = "0.1.8"
+version = "0.1.9"
 
 [[package]]
 name = "p4rust-resources-aarch64-pc-windows-msvc"
-version = "0.1.8"
+version = "0.1.9"
 
 [[package]]
 name = "p4rust-resources-aarch64-unknown-linux-gnu"
-version = "0.1.9"
+version = "0.1.10"
 
 [[package]]
 name = "p4rust-resources-x86_64-apple-darwin"
-version = "0.1.8"
+version = "0.1.9"
 
 [[package]]
 name = "p4rust-resources-x86_64-pc-windows-msvc"
-version = "0.1.8"
+version = "0.1.9"
 
 [[package]]
 name = "p4rust-resources-x86_64-unknown-linux-gnu"
-version = "0.1.9"
+version = "0.1.10"
 
 [[package]]
 name = "portable-atomic"

@@ -1,6 +1,7 @@
 #ifndef P4RUST_SESSION_H
 #define P4RUST_SESSION_H
 #include <memory>
+#include "settings.h"
 
 namespace p4rust {
 class CommandBinding {
@@ -33,9 +34,10 @@ struct Invocation {
 
     // Validate all borrowed ABI arguments before touching session state.
     void Validate() const {
-        if (options.abi_version != 6 || !command || argc < 0 || (argc && !args) ||
+        if (options.abi_version != 7 || !command || argc < 0 || (argc && !args) ||
             !callback || !options.port || !options.user || !options.client ||
-            !options.cwd || !options.charset || !options.input || (alive && !control))
+            !options.cwd || !options.charset || !options.input || !options.password ||
+            !options.ignore_file || (options.flags & ~7u) || (alive && !control))
             throw std::runtime_error("Failed to validate session bridge arguments");
         if (reconcile && (!scheduler || moves < 1 || moves > 32 ||
             (std::strcmp(command, "reconcile") && std::strcmp(command, "rec") && std::strcmp(command, "status"))))
@@ -55,6 +57,16 @@ struct Invocation {
         user.context = context;
         user.input = options.input;
         user.interrupt = &interrupt;
+        const auto local = (options.flags >> 1) & 3;
+        if (local) {
+            if (session.initialized || reconcile || local == 3 || (local == 2 && argc != 1))
+                throw std::runtime_error("Failed to validate local SDK operation");
+            if (local == 1) LocalSettings::Discover(session, user);
+            else LocalSettings::Ignored(session, user, args[0]);
+            const int32_t errors = 0;
+            user.Emit(P4RUST_STATUS, reinterpret_cast<const char*>(&errors), sizeof(errors));
+            return 0;
+        }
         ReconcileScope scheduling(user, reconcile, scheduler, moves);
         if (!session.initialized) session.Open(user);
         CommandBinding binding(session.client, interrupt);
@@ -83,13 +95,15 @@ class Persistent {
 public:
     // Retain immutable connection settings and thread-local SDK initialization.
     explicit Persistent(const p4rust_options_v1& options)
-        : settings{options.port, options.user, options.client, options.cwd, options.charset} {}
+        : settings{options.port, options.user, options.client, options.cwd, options.charset,
+                   options.password, options.ignore_file, std::to_string(options.flags)} {}
 
     // Reconnect before a later command without replaying a failed operation.
     int32_t Run(const Invocation& request) {
         const auto& options = request.options;
         if (settings != std::vector<std::string>{options.port, options.user, options.client,
-                options.cwd, options.charset})
+                options.cwd, options.charset, options.password, options.ignore_file,
+                std::to_string(options.flags)})
             throw std::runtime_error("Failed to reuse session: connection settings changed");
         try {
             if (session && session->client.Dropped()) session.reset();

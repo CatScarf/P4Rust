@@ -1,4 +1,4 @@
-//! Raw bridge protocol v6; callers own buffers and must uphold C pointer validity.
+//! Raw bridge protocol v7; callers own buffers and must uphold C pointer validity.
 
 use std::ffi::{c_char, c_void};
 
@@ -51,11 +51,14 @@ pub struct Options {
     pub cwd: *const c_char,
     pub charset: *const c_char,
     pub input: *const c_char,
+    pub password: *const c_char,
+    pub ignore_file: *const c_char,
+    pub flags: u32,
 }
 
 unsafe extern "C" {
     /// Execute on a lazy thread-owned session without retaining callback arguments.
-    pub fn p4rust_session_execute_v6(
+    pub fn p4rust_session_execute_v7(
         session: *mut *mut c_void,
         options: *const Options,
         command: *const c_char,
@@ -70,7 +73,7 @@ unsafe extern "C" {
         move_workers: u32,
     ) -> i32;
     /// Finalize a session on its creating thread after every callback has returned.
-    pub fn p4rust_session_close_v6(session: *mut c_void);
+    pub fn p4rust_session_close_v7(session: *mut c_void);
     /// Create a thread-owned SDK ignore and digest agent without a server connection.
     pub fn p4rust_scan_open_v5(
         cwd: *const c_char,

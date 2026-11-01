@@ -56,7 +56,9 @@ impl Pipeline {
         events: crossbeam_channel::Sender<super::runtime::fetch::Message>,
         control: Control,
     ) -> Result<Option<Self>> {
-        if !matches!(config.charset.as_str(), "utf8" | "utf8unchecked")
+        if !config.ignore_file.is_empty()
+            || !config.tagged
+            || !matches!(config.charset.as_str(), "utf8" | "utf8unchecked")
             || args.iter().any(|argument| {
                 argument.starts_with('-')
                     && !matches!(

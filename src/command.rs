@@ -14,6 +14,7 @@ pub struct Command {
     cancellation: Option<CancellationToken>,
     pub(crate) reconcile: Option<Arc<dyn crate::ReconcileHandler>>,
     pub(crate) session: Option<crate::Session>,
+    pub(crate) local_operation: u32,
 }
 
 impl Command {
@@ -28,7 +29,14 @@ impl Command {
             cancellation: None,
             reconcile: None,
             session: None,
+            local_operation: 0,
         }
+    }
+
+    // Select an SDK-only operation that never opens a server connection.
+    pub(crate) fn local(mut self, operation: u32) -> Self {
+        self.local_operation = operation;
+        self
     }
 
     /// Append command arguments in their supplied order.
