@@ -26,8 +26,8 @@ class Config:
     @classmethod
     def discover(cls, cwd: str = "") -> Config:
         try:
-            port, user, client, directory, charset, ignore = _native._Client.discover(cwd)
-            return cls(port, user, client, directory, charset, ignore_file=ignore)
+            port, user, client, directory, charset, ignore, password = _native._Client.discover(cwd)
+            return cls(port, user, client, directory, charset, password=password, ignore_file=ignore)
         except _native.CommandError as error:
             raise P4Error._from_native(error) from error
 

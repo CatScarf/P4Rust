@@ -55,12 +55,12 @@ impl Client {
         Ok(Self(config))
     }
 
-    // Resolve non-secret SDK settings without opening a server connection.
+    // Resolve SDK connection settings without opening a server connection.
     #[staticmethod]
     fn discover(
         py: Python<'_>,
         cwd: String,
-    ) -> PyResult<(String, String, String, String, String, String)> {
+    ) -> PyResult<(String, String, String, String, String, String, String)> {
         let config = py
             .detach(|| p4rust::Config::discover(cwd))
             .map_err(Conversion::error)?;
@@ -71,6 +71,7 @@ impl Client {
             config.cwd,
             config.charset,
             config.ignore_file,
+            config.password,
         ))
     }
 

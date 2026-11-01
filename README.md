@@ -101,7 +101,7 @@ Use `.input(form)`, `.cancellation(token)`, or `.reconcile_handler(FastReconcile
 
 ### Reusing a connection
 
-`Config::discover(cwd)` in Rust and `Config.discover(cwd)` in Python resolve the SDK's environment, registry, and P4CONFIG defaults without a server connection. Passwords are never returned by discovery or included in configuration debug output. Set `password`, `ignore_file`, or `tagged` on a configuration before creating its client; these settings are isolated per client and session. Use `client.is_ignored(absolute_path)` for the SDK's local ignore rules. Tagged and untagged clients own separate protocol connections.
+`Config::discover(cwd)` in Rust and `Config.discover(cwd)` in Python resolve the SDK's environment, registry, and P4CONFIG defaults without a server connection. Discovered and explicit credentials are excluded from configuration debug output. Set `password`, `ignore_file`, or `tagged` on a configuration before creating its client; these settings are isolated per client and session. Use `client.is_ignored(absolute_path)` for the SDK's local ignore rules. Tagged and untagged clients own separate protocol connections.
 
 `client.command()` opens an independent connection for each command. Use a session for sequential queries on one dedicated SDK thread:
 

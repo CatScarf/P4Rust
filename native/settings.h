@@ -3,7 +3,7 @@
 namespace p4rust {
 class LocalSettings {
 public:
-    // Resolve only non-secret SDK settings without opening a connection.
+    // Resolve SDK settings and credentials without opening a connection.
     static void Discover(Session& session, User& user) {
         auto& client = session.client;
         StrBufDict record;
@@ -13,6 +13,7 @@ public:
         record.SetVar("cwd", client.GetCwd().Text());
         record.SetVar("charset", client.GetCharset().Text());
         record.SetVar("ignore_file", client.GetIgnoreFile().Text());
+        record.SetVar("password", client.GetPassword().Text());
         user.OutputStat(&record);
     }
 

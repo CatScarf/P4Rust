@@ -52,6 +52,8 @@ impl Config {
         config.client = Self::field(record, "client").context("Failed to discover client")?;
         config.cwd = Self::field(record, "cwd").context("Failed to discover cwd")?;
         config.charset = Self::field(record, "charset").context("Failed to discover charset")?;
+        config.password =
+            Self::field(record, "password").context("Failed to discover credentials")?;
         config.ignore_file =
             Self::field(record, "ignore_file").context("Failed to discover ignore_file")?;
         config
