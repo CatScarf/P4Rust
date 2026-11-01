@@ -359,7 +359,7 @@ extern "C" int32_t p4rust_execute_reconcile_v3(const p4rust_options_v1* options,
             !options->cwd || !options->charset || !options->input || !options->password ||
             !options->ignore_file || (options->flags & ~7u) || (alive && !control))
             throw std::runtime_error("Failed to validate bridge arguments");
-        if (reconcile && (!scheduler || moves < 1 || moves > 32 ||
+        if (reconcile && (!scheduler || moves < 1 ||
             (std::strcmp(command, "reconcile") && std::strcmp(command, "rec") && std::strcmp(command, "status"))))
             throw std::runtime_error("Failed to validate reconcile bridge arguments");
         for (int32_t index = 0; index < argc; ++index)

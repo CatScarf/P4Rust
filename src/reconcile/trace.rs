@@ -42,13 +42,13 @@ pub(crate) struct Span {
 }
 
 impl ReconcileTrace {
-    /// Create an isolated capture with a 10 ms to 10 s activity resolution.
+    /// Create an isolated capture with a positive activity resolution.
     pub fn new(resolution: time::Duration) -> Result<Self> {
         let resolution = u64::try_from(resolution.as_nanos())
             .context("Failed to encode reconcile trace resolution")?;
         crate::error::ensure!(
-            (10_000_000..=10_000_000_000).contains(&resolution),
-            "Failed to configure reconcile trace: expected resolution between 10 ms and 10 s"
+            resolution > 0,
+            "Failed to configure reconcile trace: expected a positive resolution"
         );
         Ok(Self {
             inner: sync::Arc::new(Inner {
