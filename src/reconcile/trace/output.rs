@@ -12,7 +12,7 @@ impl Output {
                 .inner
                 .failed
                 .load(std::sync::atomic::Ordering::Relaxed),
-            "Failed to export reconcile trace: timing buffer failed or capture limit exceeded"
+            "Failed to export reconcile trace: timing capture failed"
         );
         let threads = trace
             .inner

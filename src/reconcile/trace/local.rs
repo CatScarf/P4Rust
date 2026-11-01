@@ -112,16 +112,10 @@ impl Local {
         stage.exclusive += end - start;
         while start < end {
             let index = (start / resolution) as usize;
-            if index >= 360_000 {
-                if let Some(inner) = self.inner.upgrade() {
-                    inner.failed.store(true, sync::atomic::Ordering::Relaxed);
-                }
-                return;
-            }
             if stage.bins.len() <= index {
                 stage.bins.resize(index + 1, 0);
             }
-            let stop = end.min((index as u64 + 1) * resolution);
+            let stop = end.min((index as u64 + 1).saturating_mul(resolution));
             stage.bins[index] += stop - start;
             start = stop;
         }
