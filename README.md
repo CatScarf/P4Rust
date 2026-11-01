@@ -54,6 +54,8 @@ fn main() -> Result<()> {
 
 `run()` streams events; `collect_output()` collects results. Configure input, timeout, and cancellation on the builder.
 
+Tagged records use the SDK's standard accumulation and are emitted once complete. Intermediate cumulative snapshots are not copied into the event stream.
+
 Use `FastReconcile` for parallel local processing.
 
 ```rust

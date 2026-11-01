@@ -141,12 +141,6 @@ public:
         Record(dictionary, P4RUST_RECORD);
     }
 
-    // Preserve a partial tagged callback while retaining the SDK's default accumulation.
-    int OutputStatPartial(StrDict* dictionary) override {
-        Record(dictionary, P4RUST_RECORD_PARTIAL);
-        return 0;
-    }
-
     // Borrow the complete SDK dictionary without truncating legitimate records.
     void Record(StrDict* dictionary, uint32_t event) {
         std::vector<p4rust_field_v2> fields;
