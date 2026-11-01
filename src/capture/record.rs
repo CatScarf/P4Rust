@@ -6,7 +6,7 @@ impl Record {
     pub(crate) unsafe fn copy(frame: &[u8]) -> Result<Self> {
         let size = std::mem::size_of::<ffi::Field>();
         ensure!(
-            frame.len().is_multiple_of(size) && frame.len() / size <= 16_384,
+            frame.len().is_multiple_of(size),
             "Failed to validate native tagged descriptor count"
         );
         let pointer = frame.as_ptr().cast::<ffi::Field>();
@@ -20,14 +20,12 @@ impl Record {
         } else {
             unsafe { std::slice::from_raw_parts(pointer, frame.len() / size) }
         };
-        let mut length = 0;
+        let mut length: usize = 0;
         for field in fields {
-            ensure!(
-                field.key_length <= 1_048_576 - length
-                    && field.value_length <= 1_048_576 - length - field.key_length,
-                "Failed to bound tagged record size: exceeds 1 MiB"
-            );
-            length += field.key_length + field.value_length;
+            length = length
+                .checked_add(field.key_length)
+                .and_then(|length| length.checked_add(field.value_length))
+                .context("Failed to represent tagged record byte length")?;
         }
         let mut record = Self {
             bytes: Vec::with_capacity(length),

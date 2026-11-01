@@ -83,7 +83,7 @@ void ReconcileScope::Fail(const char* message) noexcept {
 // Copy the receive dictionary into stable command-owned strings.
 void Fields::Copy(StrDict* dictionary) {
     const int count = dictionary->GetCount();
-    if (count < 0 || count > 16384) throw std::runtime_error("Failed to bound reconcile metadata count");
+    if (count < 0) throw std::runtime_error("Failed to read negative reconcile metadata count");
     values.reserve(values.size() + static_cast<size_t>(count));
     StrRef key, value;
     for (int index = 0; dictionary->GetVar(index, key, value); ++index)
@@ -116,16 +116,11 @@ bool Fields::Has(const std::string& name) const {
         if (inherited->values[index].first == name) return true;
     return false;
 }
-// Bound protocol metadata before constructing borrowed FFI descriptors.
+// Borrow every metadata field for the synchronous FFI callback.
 std::vector<p4rust_field_v2> Fields::Frame() const {
-    size_t bytes = 0;
     std::vector<p4rust_field_v2> frame;
-    frame.reserve(std::min<size_t>(values.size() + inherited_count, 16384));
+    frame.reserve(values.size() + inherited_count);
     Each([&](const auto& field) {
-        if (frame.size() == 16384) throw std::runtime_error("Failed to bound reconcile metadata fields");
-        if (field.first.size() > 1048576 - bytes || field.second.size() > 1048576 - bytes - field.first.size())
-            throw std::runtime_error("Failed to bound reconcile metadata: exceeds 1 MiB");
-        bytes += field.first.size() + field.second.size();
         frame.push_back({reinterpret_cast<const uint8_t*>(field.first.data()), field.first.size(),
                          reinterpret_cast<const uint8_t*>(field.second.data()), field.second.size()});
     });

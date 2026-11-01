@@ -25,7 +25,7 @@ impl Frozen {
             !data.is_null()
                 && length > 0
                 && length.is_multiple_of(size)
-                && length / size <= 16384
+                && length <= isize::MAX as usize
                 && data.cast::<ffi::Field>().is_aligned(),
             "Failed to validate frozen SDK descriptors"
         );
@@ -33,19 +33,17 @@ impl Frozen {
         let borrowed =
             unsafe { std::slice::from_raw_parts(data.cast::<ffi::Field>(), length / size) };
         let mut fields = Vec::with_capacity(borrowed.len());
-        let mut bytes = 0;
+        let mut bytes: usize = 0;
         for field in borrowed {
-            ensure!(
-                field.key_length <= 1048576 - bytes
-                    && field.value_length <= 1048576 - bytes - field.key_length,
-                "Failed to bound frozen SDK bytes: exceeds 1 MiB"
-            );
             ensure!(
                 (field.key_length == 0 || !field.key.is_null())
                     && (field.value_length == 0 || !field.value.is_null()),
                 "Failed to borrow frozen SDK field bytes"
             );
-            bytes += field.key_length + field.value_length;
+            bytes = bytes
+                .checked_add(field.key_length)
+                .and_then(|bytes| bytes.checked_add(field.value_length))
+                .context("Failed to represent frozen SDK byte length")?;
             fields.push(ffi::Field {
                 key: field.key,
                 key_length: field.key_length,

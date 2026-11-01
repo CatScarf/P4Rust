@@ -35,7 +35,7 @@ pub(super) struct Fetch {
 }
 
 impl Fetch {
-    // Validate limits before starting any command-owned threads.
+    // Reject zero-sized worker pools and queues that cannot make progress.
     pub(super) fn validate(handler: &dyn ReconcileHandler) -> Result<()> {
         for kind in [
             ReconcileKind::Directory,
@@ -43,8 +43,8 @@ impl Fetch {
             ReconcileKind::Move,
         ] {
             ensure!(
-                (1..=32).contains(&handler.workers(kind)),
-                "Failed to configure reconcile workers: expected 1..=32"
+                handler.workers(kind) > 0,
+                "Failed to configure reconcile workers: expected a positive count"
             );
         }
         for kind in [ReconcileKind::UntrackedFile, ReconcileKind::ExactMatch] {
@@ -54,11 +54,11 @@ impl Fetch {
             );
         }
         ensure!(
-            (1..=65536).contains(&handler.queue_capacity()),
+            handler.queue_capacity() > 0,
             "Failed to configure reconcile queue capacity"
         );
         ensure!(
-            (1048576..=268435456).contains(&handler.queue_bytes()),
+            handler.queue_bytes() > 0,
             "Failed to configure reconcile byte budget"
         );
         Ok(())

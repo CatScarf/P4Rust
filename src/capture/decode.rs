@@ -10,7 +10,6 @@ impl Capture {
         value: &[u8],
         state: &mut State,
     ) -> Result<Option<Event>> {
-        ensure!(data.len() <= 1_048_576, "Failed to bound SDK callback size");
         let event = match kind {
             ffi::TEXT => Event::Text { raw: data.to_vec() },
             ffi::BINARY => Event::Binary(data.to_vec()),
@@ -85,7 +84,7 @@ impl Capture {
     // Decode exact progress method metadata into an owned callback snapshot.
     fn progress(description: &[u8], metadata: &[u8]) -> Result<Progress> {
         ensure!(
-            metadata.len() == 56 && description.len() <= 16_384,
+            metadata.len() == 56,
             "Failed to validate SDK progress frame"
         );
         let mut values = [0_i64; 7];

@@ -147,22 +147,14 @@ public:
         return 0;
     }
 
-    // Borrow an entire tagged dictionary through one bounded descriptor callback.
+    // Borrow the complete SDK dictionary without truncating legitimate records.
     void Record(StrDict* dictionary, uint32_t event) {
         std::vector<p4rust_field_v2> fields;
         const int count = dictionary->GetCount();
-        if (count >= 0 && count <= 16384) fields.reserve(static_cast<size_t>(count));
-        size_t bytes = 0;
+        if (count > 0) fields.reserve(static_cast<size_t>(count));
         StrRef key, value;
         for (int index = 0; dictionary->GetVar(index, key, value); ++index) {
             const size_t key_length = key.Length(), value_length = value.Length();
-            if (fields.size() == 16384 || key_length > 1048576 - bytes ||
-                value_length > 1048576 - bytes - key_length) {
-                const char* message = "Failed to bound tagged record: exceeds callback limits";
-                Emit(P4RUST_ERROR, message, std::strlen(message));
-                return;
-            }
-            bytes += key_length + value_length;
             fields.push_back({reinterpret_cast<const uint8_t*>(key.Text()), key_length,
                               reinterpret_cast<const uint8_t*>(value.Text()), value_length});
         }

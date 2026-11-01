@@ -134,12 +134,14 @@ impl Runtime {
     fn submit(&self, mut request: ingress::Frozen) -> Result<()> {
         reconcile_span!("request_admission");
         let bytes = request.bytes;
-        ensure!(
-            bytes <= self.budget,
-            "Failed to enqueue reconcile request: exceeds byte budget"
-        );
         while self.shared.count.load(atomic::Ordering::Acquire) >= self.capacity
-            || self.shared.bytes.load(atomic::Ordering::Acquire) > self.budget - bytes
+            || (self.shared.count.load(atomic::Ordering::Acquire) > 0
+                && self
+                    .shared
+                    .bytes
+                    .load(atomic::Ordering::Acquire)
+                    .saturating_add(bytes)
+                    > self.budget)
         {
             reconcile_span!("admission_backpressure");
             self.poll(true)

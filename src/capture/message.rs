@@ -39,10 +39,6 @@ impl Reader<'_> {
 impl Message {
     // Decode exact SDK message identifiers, parameters, and serialized bytes.
     pub(crate) fn decode(raw: &[u8], serialized: &[u8]) -> Result<Self> {
-        ensure!(
-            raw.len() <= 1_048_576 && serialized.len() <= 1_048_576 - raw.len(),
-            "Failed to bound SDK message size"
-        );
         let mut reader = Reader { bytes: serialized };
         let severity = reader.number().context("Failed to read message severity")?;
         let mut message = Self {
@@ -64,8 +60,8 @@ impl Message {
                 .number()
                 .context("Failed to read message identifier count")?;
             ensure!(
-                (0..=16_384).contains(&count),
-                "Failed to bound message identifier count"
+                count >= 0,
+                "Failed to read negative message identifier count"
             );
             for _ in 0..count {
                 let code = reader
@@ -81,10 +77,6 @@ impl Message {
                 message.ids.push(MessageId { code, format });
             }
             while !reader.bytes.is_empty() {
-                ensure!(
-                    message.parameters.len() < 16_384,
-                    "Failed to bound error parameters"
-                );
                 let key = reader
                     .string()
                     .context("Failed to read error parameter name")?;
