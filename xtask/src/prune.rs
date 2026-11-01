@@ -260,7 +260,7 @@ impl Prune {
                 .arg("-Wl,--start-group")
                 .args(libraries)
                 .arg("-Wl,--end-group")
-                .args(["-pthread", "-ldl", "-lresolv", "-lrt", "-lm"])
+                .args(["-pthread", "-lpthread", "-ldl", "-lresolv", "-lrt", "-lm"])
                 .args([
                     "-nodefaultlibs",
                     "-l:libstdc++.so.6",
